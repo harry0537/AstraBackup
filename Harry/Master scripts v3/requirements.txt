@@ -1,0 +1,14 @@
+# Core scientific computing 
+numpy
+pandas
+scipy
+ 
+# Computer vision (for crop monitoring) 
+opencv-python
+Pillow
+ 
+# Serial communication (for sensors) 
+pyserial
+ 
+# Data visualization 
+matplotlib
