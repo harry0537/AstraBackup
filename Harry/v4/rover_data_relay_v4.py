@@ -15,12 +15,22 @@ import os
 from PIL import Image
 import io
 
-# Configuration (NEVER MODIFY)
+# Configuration (reads from environment or uses defaults)
 PIXHAWK_PORT = '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00'
 PIXHAWK_BAUD = 57600
-DASHBOARD_IP = "10.244.77.186"
-DASHBOARD_PORT = 8081
+DASHBOARD_IP = os.environ.get('ASTRA_DASHBOARD_IP', "10.244.77.186")
+DASHBOARD_PORT = int(os.environ.get('ASTRA_DASHBOARD_PORT', "8081"))
 COMPONENT_ID = 197
+
+# Load full config if available
+try:
+    config_json = os.environ.get('ASTRA_CONFIG')
+    if config_json:
+        config = json.loads(config_json)
+        DASHBOARD_IP = config.get('dashboard_ip', DASHBOARD_IP)
+        DASHBOARD_PORT = config.get('dashboard_port', DASHBOARD_PORT)
+except:
+    pass
 
 class DataRelay:
     def __init__(self):
