@@ -157,11 +157,16 @@ class RoverManager:
         else:
             print("  ✗ User NOT in dialout group (run setup)")
             
-        # Check RPLidar
-        if os.path.exists(LIDAR_PORT) or os.path.exists('/dev/rplidar'):
-            print(f"  ✓ RPLidar detected")
-            results['rplidar'] = True
-        else:
+        # Check RPLidar (udev symlink or any ttyUSB*)
+        lidar_found = False
+        lidar_candidates = ['/dev/rplidar', LIDAR_PORT]
+        lidar_candidates += [f'/dev/ttyUSB{i}' for i in range(6)]
+        for candidate in lidar_candidates:
+            if os.path.exists(candidate):
+                lidar_found = True
+                print(f"  ✓ RPLidar detected at {candidate}")
+                break
+        if not lidar_found:
             print(f"  ✗ RPLidar not found")
             
         # Check Pixhawk
@@ -258,7 +263,7 @@ class RoverManager:
             stderr_file = open(stderr_path, 'a')
 
             process = subprocess.Popen(
-                ['python3', script_path],
+                [sys.executable, script_path],
                 stdout=stdout_file,
                 stderr=stderr_file,
                 env=env
