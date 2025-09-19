@@ -33,9 +33,9 @@ function Test-Command {
 Write-Host "`n[1/8] Administrator Check" -ForegroundColor Yellow
 Write-Host ("-" * 40)
 if (Test-Administrator) {
-    Write-Host "[OK] Running as Administrator" -ForegroundColor Green
+    Write-Host "✓ Running as Administrator" -ForegroundColor Green
 } else {
-    Write-Host "[WARN] Not running as Administrator" -ForegroundColor Yellow
+    Write-Host "⚠ Not running as Administrator" -ForegroundColor Yellow
     Write-Host "Some features may not work. Run PowerShell as Administrator for full setup" -ForegroundColor Yellow
 }
 
@@ -54,9 +54,9 @@ $directories = @(
 foreach ($dir in $directories) {
     if (!(Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        Write-Host "[OK] Created $dir" -ForegroundColor Green
+        Write-Host "✓ Created $dir" -ForegroundColor Green
     } else {
-        Write-Host "[OK] Directory exists: $dir" -ForegroundColor Green
+        Write-Host "✓ Directory exists: $dir" -ForegroundColor Green
     }
 }
 
@@ -66,7 +66,7 @@ Write-Host ("-" * 40)
 
 if (Test-Command python) {
     $pythonVersion = python --version 2>&1
-    Write-Host "[OK] Python found: $pythonVersion" -ForegroundColor Green
+    Write-Host "✓ Python found: $pythonVersion" -ForegroundColor Green
     
     # Install required packages
     Write-Host "Installing Python packages..." -ForegroundColor Cyan
@@ -82,13 +82,13 @@ if (Test-Command python) {
         Write-Host "  Installing $package..." -NoNewline
         $result = pip install $package 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Host " [OK]" -ForegroundColor Green
+            Write-Host " ✓" -ForegroundColor Green
         } else {
-            Write-Host " [FAIL]" -ForegroundColor Red
+            Write-Host " ✗" -ForegroundColor Red
         }
     }
 } else {
-    Write-Host "[FAIL] Python not found" -ForegroundColor Red
+    Write-Host "✗ Python not found" -ForegroundColor Red
     Write-Host "Please install Python $PYTHON_VERSION from https://www.python.org/downloads/" -ForegroundColor Yellow
     
     $install = Read-Host "Open Python download page? (Y/N)"
@@ -103,31 +103,31 @@ Write-Host ("-" * 40)
 
 $zerotierPath = "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.bat"
 if (Test-Path $zerotierPath) {
-    Write-Host "[OK] ZeroTier installed" -ForegroundColor Green
+    Write-Host "✓ ZeroTier installed" -ForegroundColor Green
     
     # Check status
     $status = & $zerotierPath status 2>&1
     if ($status -match "ONLINE") {
-        Write-Host "[OK] ZeroTier online" -ForegroundColor Green
+        Write-Host "✓ ZeroTier online" -ForegroundColor Green
         
         # Check network membership
         $networks = & $zerotierPath listnetworks 2>&1
         if ($networks -match $ZEROTIER_NETWORK) {
-            Write-Host "[OK] Connected to UGV Network" -ForegroundColor Green
+            Write-Host "✓ Connected to UGV Network" -ForegroundColor Green
         } else {
-            Write-Host "[WARN] Not connected to UGV Network" -ForegroundColor Yellow
+            Write-Host "⚠ Not connected to UGV Network" -ForegroundColor Yellow
             $join = Read-Host "Join network $ZEROTIER_NETWORK? (Y/N)"
             if ($join -eq "Y") {
                 & $zerotierPath join $ZEROTIER_NETWORK
-                Write-Host "[OK] Network join requested" -ForegroundColor Green
+                Write-Host "✓ Network join requested" -ForegroundColor Green
             }
         }
     } else {
-        Write-Host "[WARN] ZeroTier not running" -ForegroundColor Yellow
+        Write-Host "⚠ ZeroTier not running" -ForegroundColor Yellow
         Write-Host "Start ZeroTier service from system tray or services" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "[FAIL] ZeroTier not installed" -ForegroundColor Red
+    Write-Host "✗ ZeroTier not installed" -ForegroundColor Red
     Write-Host "Download from: https://www.zerotier.com/download/" -ForegroundColor Yellow
     
     $install = Read-Host "Open ZeroTier download page? (Y/N)"
@@ -152,9 +152,9 @@ if (Test-Administrator) {
             -LocalPort $DASHBOARD_PORT `
             -Action Allow `
             -Profile Any | Out-Null
-        Write-Host "[OK] Firewall rule created for port $DASHBOARD_PORT" -ForegroundColor Green
+        Write-Host "✓ Firewall rule created for port $DASHBOARD_PORT" -ForegroundColor Green
     } else {
-        Write-Host "[OK] Firewall rule exists for port $DASHBOARD_PORT" -ForegroundColor Green
+        Write-Host "✓ Firewall rule exists for port $DASHBOARD_PORT" -ForegroundColor Green
     }
     
     # Additional ports
@@ -170,11 +170,11 @@ if (Test-Administrator) {
                 -LocalPort $port `
                 -Action Allow `
                 -Profile Any | Out-Null
-            Write-Host "[OK] Firewall rule created for port $port" -ForegroundColor Green
+            Write-Host "✓ Firewall rule created for port $port" -ForegroundColor Green
         }
     }
 } else {
-    Write-Host "[WARN] Cannot configure firewall without Administrator rights" -ForegroundColor Yellow
+    Write-Host "⚠ Cannot configure firewall without Administrator rights" -ForegroundColor Yellow
     Write-Host "Run as Administrator to configure firewall" -ForegroundColor Yellow
 }
 
@@ -192,9 +192,9 @@ foreach ($port in $ports.Keys) {
     $tcpConnection = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
     
     if ($tcpConnection.TcpTestSucceeded) {
-        Write-Host "[WARN] Port $port ($($ports[$port])) is in use" -ForegroundColor Yellow
+        Write-Host "⚠ Port $port ($($ports[$port])) is in use" -ForegroundColor Yellow
     } else {
-        Write-Host "[OK] Port $port ($($ports[$port])) is available" -ForegroundColor Green
+        Write-Host "✓ Port $port ($($ports[$port])) is available" -ForegroundColor Green
     }
 }
 
@@ -217,7 +217,7 @@ $config = @{
 }
 
 $config | ConvertTo-Json | Out-File -FilePath $CONFIG_FILE -Encoding UTF8
-Write-Host "[OK] Configuration saved to $CONFIG_FILE" -ForegroundColor Green
+Write-Host "✓ Configuration saved to $CONFIG_FILE" -ForegroundColor Green
 Write-Host "  Dashboard IP: $localIP" -ForegroundColor Cyan
 Write-Host "  Dashboard Port: $DASHBOARD_PORT" -ForegroundColor Cyan
 
@@ -238,7 +238,7 @@ pause
 "@
 
 $startupScript | Out-File -FilePath "$DASHBOARD_DIR\start_dashboard.bat" -Encoding ASCII
-Write-Host "[OK] Startup script created: start_dashboard.bat" -ForegroundColor Green
+Write-Host "✓ Startup script created: start_dashboard.bat" -ForegroundColor Green
 
 # Create PowerShell startup script
 $psStartupScript = @'
@@ -256,7 +256,7 @@ if ($LASTEXITCODE -ne 0) {
 '@
 
 $psStartupScript | Out-File -FilePath "$DASHBOARD_DIR\Start-Dashboard.ps1" -Encoding UTF8
-Write-Host "[OK] PowerShell startup script created: Start-Dashboard.ps1" -ForegroundColor Green
+Write-Host "✓ PowerShell startup script created: Start-Dashboard.ps1" -ForegroundColor Green
 
 # Create scheduled task for auto-start
 $createTask = Read-Host "`nCreate Windows scheduled task for auto-start? (Y/N)"
@@ -265,7 +265,7 @@ if ($createTask -eq "Y" -and (Test-Administrator)) {
     $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     
     if ($existingTask) {
-        Write-Host "[WARN] Scheduled task already exists" -ForegroundColor Yellow
+        Write-Host "⚠ Scheduled task already exists" -ForegroundColor Yellow
     } else {
         $action = New-ScheduledTaskAction -Execute "python.exe" -Argument "$DASHBOARD_DIR\dashboard_receiver_v4.py" -WorkingDirectory $DASHBOARD_DIR
         $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -279,7 +279,7 @@ if ($createTask -eq "Y" -and (Test-Administrator)) {
             -Principal $principal `
             -Description "Project Astra NZ Dashboard Receiver Service" | Out-Null
             
-        Write-Host "[OK] Scheduled task created for auto-start" -ForegroundColor Green
+        Write-Host "✓ Scheduled task created for auto-start" -ForegroundColor Green
     }
 }
 
@@ -300,7 +300,7 @@ Write-Host "2. Start dashboard: Run start_dashboard.bat" -ForegroundColor White
 Write-Host "3. Access status page: http://localhost:$DASHBOARD_PORT" -ForegroundColor White
 Write-Host "4. Verify rover connection via ZeroTier" -ForegroundColor White
 
-Write-Host "`n[OK] Setup complete!" -ForegroundColor Green
+Write-Host "`n✅ Setup complete!" -ForegroundColor Green
 
 # Keep window open
 Read-Host "`nPress Enter to exit"

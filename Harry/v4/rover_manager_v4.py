@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Project Astra NZ - Rover Manager V4
-Main management script for all rover components
+Main management script for all rover components with setup integration
 """
 
 import os
@@ -9,15 +9,28 @@ import sys
 import time
 import subprocess
 import signal
+import json
 from datetime import datetime
 import threading
 
-# Configuration (NEVER MODIFY)
+# Configuration file
+CONFIG_FILE = "rover_config_v4.json"
+
+# Default configuration (used if config file missing)
+DEFAULT_CONFIG = {
+    "rover_ip": "localhost",
+    "dashboard_ip": "10.244.77.186", 
+    "dashboard_port": 8081,
+    "mavlink_port": 14550,
+    "mavproxy_port": 14551,
+    "web_port": 5000,
+    "component_base_port": 15000
+}
+
+# Hardware configuration (NEVER MODIFY)
 LIDAR_PORT = '/dev/ttyUSB0'
 PIXHAWK_PORT = '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00'
 PIXHAWK_BAUD = 57600
-DASHBOARD_IP = "10.244.77.186"
-DASHBOARD_PORT = 8080
 
 # Component definitions
 COMPONENTS = {
@@ -51,10 +64,71 @@ class RoverManager:
     def __init__(self):
         self.processes = {}
         self.running = True
+        self.config = self.load_config()
+        self.auto_mode = '--auto' in sys.argv
+        
+    def load_config(self):
+        """Load configuration from file or use defaults"""
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                print(f"✓ Configuration loaded from {CONFIG_FILE}")
+                return config
+            except Exception as e:
+                print(f"⚠️  Error loading config: {e}")
+                
+        print("⚠️  Using default configuration")
+        return DEFAULT_CONFIG
+        
+    def run_setup(self):
+        """Run setup script if needed"""
+        print("\n[Pre-Flight] Checking Setup")
+        print("-" * 40)
+        
+        # Check if setup has been run
+        if not os.path.exists(CONFIG_FILE):
+            print("⚠️  Configuration not found")
+            
+            if not self.auto_mode:
+                response = input("Run setup now? [Y/n]: ")
+                if response.lower() != 'n':
+                    print("\nRunning setup script...")
+                    result = subprocess.run(['python3', 'rover_setup_v4.py'], 
+                                          capture_output=False)
+                    if result.returncode == 0:
+                        print("✓ Setup completed")
+                        self.config = self.load_config()
+                    else:
+                        print("✗ Setup failed")
+                        return False
+            else:
+                print("Auto mode - skipping setup prompt")
+        else:
+            print("✓ Configuration found")
+            
+            # Check if IP addresses need updating
+            import socket
+            try:
+                hostname = socket.gethostname()
+                current_ip = socket.gethostbyname(hostname)
+                if current_ip != self.config.get('rover_ip'):
+                    print(f"⚠️  IP address changed: {self.config.get('rover_ip')} → {current_ip}")
+                    self.config['rover_ip'] = current_ip
+                    with open(CONFIG_FILE, 'w') as f:
+                        json.dump(self.config, f, indent=2)
+                    print("✓ Configuration updated")
+            except:
+                pass
+                
+        return True
         
     def print_header(self):
         print("═" * 60)
         print("     PROJECT ASTRA NZ - ROVER MANAGER V4")
+        print("═" * 60)
+        print(f"Dashboard: http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+        print(f"MAVLink:   UDP port {self.config['mavlink_port']}")
         print("═" * 60)
         
     def check_hardware(self):
@@ -76,17 +150,17 @@ class RoverManager:
             print("  ✓ User in dialout group")
             results['permissions'] = True
         else:
-            print("  ✗ User NOT in dialout group (run: sudo usermod -aG dialout $USER)")
+            print("  ✗ User NOT in dialout group (run setup)")
             
         # Check RPLidar
-        if os.path.exists(LIDAR_PORT):
-            print(f"  ✓ RPLidar detected at {LIDAR_PORT}")
+        if os.path.exists(LIDAR_PORT) or os.path.exists('/dev/rplidar'):
+            print(f"  ✓ RPLidar detected")
             results['rplidar'] = True
         else:
-            print(f"  ✗ RPLidar not found at {LIDAR_PORT}")
+            print(f"  ✗ RPLidar not found")
             
         # Check Pixhawk
-        if os.path.exists(PIXHAWK_PORT):
+        if os.path.exists(PIXHAWK_PORT) or os.path.exists('/dev/pixhawk'):
             print(f"  ✓ Pixhawk detected")
             results['pixhawk'] = True
         else:
@@ -107,6 +181,15 @@ class RoverManager:
         except:
             print("  ⚠ RealSense library not found (non-critical)")
             
+        # Check network
+        try:
+            import requests
+            response = requests.get(f"http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}/", 
+                                   timeout=2)
+            print(f"  ✓ Dashboard reachable at {self.config['dashboard_ip']}")
+        except:
+            print(f"  ⚠ Dashboard not reachable (non-critical)")
+            
         # Summary
         critical_ok = results['rplidar'] and results['pixhawk'] and results['permissions']
         
@@ -115,25 +198,34 @@ class RoverManager:
         else:
             print("\n⚠️  Critical hardware issues detected")
             
-        response = input("\nContinue with startup? [y/n]: ")
-        return response.lower() == 'y'
+        if not self.auto_mode:
+            response = input("\nContinue with startup? [y/n]: ")
+            return response.lower() == 'y'
+        else:
+            return critical_ok
         
     def select_components(self):
         """Phase 2: Component selection"""
         print("\n[Phase 2/4] Component Selection")
         print("-" * 40)
         
-        for comp_id, comp in COMPONENTS.items():
-            default = 'Y' if comp['enabled'] else 'n'
-            prompt = f"  Start {comp['name']} ({comp_id})? [{default}/n]: "
-            response = input(prompt) or default
-            comp['enabled'] = response.lower() != 'n'
-            
-        # Show summary
-        print("\nComponents to start:")
-        for comp_id, comp in COMPONENTS.items():
-            if comp['enabled']:
-                print(f"  • {comp['name']} ({comp['script']})")
+        if self.auto_mode:
+            print("Auto mode - using default component selection")
+            for comp_id, comp in COMPONENTS.items():
+                if comp['enabled']:
+                    print(f"  • {comp['name']} ({comp['script']})")
+        else:
+            for comp_id, comp in COMPONENTS.items():
+                default = 'Y' if comp['enabled'] else 'n'
+                prompt = f"  Start {comp['name']} ({comp_id})? [{default}/n]: "
+                response = input(prompt) or default
+                comp['enabled'] = response.lower() != 'n'
+                
+            # Show summary
+            print("\nComponents to start:")
+            for comp_id, comp in COMPONENTS.items():
+                if comp['enabled']:
+                    print(f"  • {comp['name']} ({comp['script']})")
                 
     def start_component(self, comp_id, comp_info):
         """Start a single component"""
@@ -146,10 +238,18 @@ class RoverManager:
             return False
             
         try:
+            # Pass configuration to components via environment
+            env = os.environ.copy()
+            env['ASTRA_CONFIG'] = json.dumps(self.config)
+            env['ASTRA_DASHBOARD_IP'] = self.config['dashboard_ip']
+            env['ASTRA_DASHBOARD_PORT'] = str(self.config['dashboard_port'])
+            env['ASTRA_MAVLINK_PORT'] = str(self.config['mavlink_port'])
+            
             process = subprocess.Popen(
                 ['python3', script_path],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                env=env
             )
             self.processes[comp_id] = {
                 'process': process,
@@ -217,7 +317,8 @@ class RoverManager:
                 print(f"{comp_name:<20} {status:<12} {pid:<8} {uptime:<15} {restarts}")
                 
             print("-" * 60)
-            print(f"Dashboard: http://{DASHBOARD_IP}:{DASHBOARD_PORT}")
+            print(f"Dashboard: http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+            print(f"MAVLink:   UDP port {self.config['mavlink_port']}")
             print("\nPress Ctrl+C for graceful shutdown")
             
             time.sleep(5)
@@ -245,6 +346,11 @@ class RoverManager:
         """Main execution flow"""
         self.print_header()
         
+        # Run setup if needed
+        if not self.run_setup():
+            print("Setup required before starting")
+            return
+            
         # Phase 1: Hardware check
         if not self.check_hardware():
             print("Startup cancelled")
