@@ -10,8 +10,8 @@ import time
 import subprocess
 
 # Configuration (NEVER MODIFY)
-LIDAR_PORT = '/dev/ttyUSB0'
-PIXHAWK_PORT = '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00'
+LIDAR_PORT = '/dev/rplidar'  # prefer udev symlink; fallback to ttyUSB*
+PIXHAWK_PORT = '/dev/pixhawk'  # prefer udev symlink; fallback to ttyACM*
 PIXHAWK_BAUD = 57600
 
 def check_python_version():
@@ -72,13 +72,20 @@ def check_libraries():
 
 def check_rplidar():
     """Check RPLidar connection"""
-    if not os.path.exists(LIDAR_PORT):
-        print(f"  ✗ RPLidar not found at {LIDAR_PORT}")
+    # Try preferred symlink then common devices
+    candidate_ports = [LIDAR_PORT, '/dev/ttyUSB0', '/dev/ttyUSB1']
+    lidar_path = None
+    for port in candidate_ports:
+        if os.path.exists(port):
+            lidar_path = port
+            break
+    if not lidar_path:
+        print(f"  ✗ RPLidar not found")
         return False
         
     try:
         from rplidar import RPLidar
-        lidar = RPLidar(LIDAR_PORT, baudrate=1000000, timeout=2)
+        lidar = RPLidar(lidar_path, baudrate=1000000, timeout=2)
         info = lidar.get_info()
         health = lidar.get_health()
         lidar.disconnect()
@@ -92,18 +99,14 @@ def check_rplidar():
 
 def check_pixhawk():
     """Check Pixhawk connection"""
-    # Check primary port
-    if os.path.exists(PIXHAWK_PORT):
-        print(f"  ✓ Pixhawk detected at configured port")
-        return True
-        
-    # Check alternate ports
-    for i in range(10):
-        if os.path.exists(f'/dev/ttyACM{i}'):
-            print(f"  ⚠ Pixhawk possibly at /dev/ttyACM{i}")
-            print(f"    Update PIXHAWK_PORT in scripts if needed")
+    # Try preferred symlink, by-id, then ttyACM*
+    candidates = [PIXHAWK_PORT,
+                  '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00']
+    candidates += [f'/dev/ttyACM{i}' for i in range(10)]
+    for port in candidates:
+        if os.path.exists(port):
+            print(f"  ✓ Pixhawk detected at {port}")
             return True
-            
     print("  ✗ Pixhawk not detected")
     return False
 

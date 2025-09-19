@@ -12,7 +12,7 @@ import pyrealsense2 as rs
 import threading
 
 # Configuration (NEVER MODIFY)
-PIXHAWK_PORT = '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00'
+PIXHAWK_PORT = '/dev/pixhawk'  # prefer udev symlink; fallback to ttyACM*
 PIXHAWK_BAUD = 57600
 COMPONENT_ID = 196
 
@@ -42,17 +42,27 @@ class RowFollowingSystem:
     def connect_pixhawk(self):
         """Connect to Pixhawk for navigation commands"""
         try:
-            print(f"Connecting to Pixhawk at {PIXHAWK_PORT}")
-            self.mavlink = mavutil.mavlink_connection(
-                PIXHAWK_PORT,
-                baud=PIXHAWK_BAUD,
-                source_system=255,
-                source_component=COMPONENT_ID
-            )
-            
-            self.mavlink.wait_heartbeat(timeout=10)
-            print("✓ Connected to Pixhawk")
-            return True
+            candidate_ports = [PIXHAWK_PORT,
+                               '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00']
+            candidate_ports += [f'/dev/ttyACM{i}' for i in range(4)]
+            last_error = None
+            for port in candidate_ports:
+                try:
+                    print(f"Connecting to Pixhawk at {port}")
+                    self.mavlink = mavutil.mavlink_connection(
+                        port,
+                        baud=PIXHAWK_BAUD,
+                        source_system=255,
+                        source_component=COMPONENT_ID
+                    )
+                    self.mavlink.wait_heartbeat(timeout=5)
+                    print("✓ Connected to Pixhawk")
+                    return True
+                except Exception as e:
+                    last_error = e
+                    self.mavlink = None
+            print(f"✗ Pixhawk connection failed: {last_error}")
+            return False
             
         except Exception as e:
             print(f"✗ Pixhawk connection failed: {e}")

@@ -66,6 +66,11 @@ class RoverManager:
         self.running = True
         self.config = self.load_config()
         self.auto_mode = '--auto' in sys.argv
+        # Ensure logs directory exists for component stdout/stderr
+        try:
+            os.makedirs('logs', exist_ok=True)
+        except Exception:
+            pass
         
     def load_config(self):
         """Load configuration from file or use defaults"""
@@ -245,17 +250,26 @@ class RoverManager:
             env['ASTRA_DASHBOARD_PORT'] = str(self.config['dashboard_port'])
             env['ASTRA_MAVLINK_PORT'] = str(self.config['mavlink_port'])
             
+            # Send component output to per-component log files to avoid pipe blocking
+            log_basename = comp_info['script'].replace('.py', '')
+            stdout_path = os.path.join('logs', f"{log_basename}.out.log")
+            stderr_path = os.path.join('logs', f"{log_basename}.err.log")
+            stdout_file = open(stdout_path, 'a')
+            stderr_file = open(stderr_path, 'a')
+
             process = subprocess.Popen(
                 ['python3', script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=stdout_file,
+                stderr=stderr_file,
                 env=env
             )
             self.processes[comp_id] = {
                 'process': process,
                 'info': comp_info,
                 'start_time': datetime.now(),
-                'restarts': 0
+                'restarts': 0,
+                'stdout_file': stdout_file,
+                'stderr_file': stderr_file
             }
             return True
         except Exception as e:
@@ -339,6 +353,17 @@ class RoverManager:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     print(" (forced)")
+                # Close any open log file handles
+                try:
+                    if 'stdout_file' in proc_info and proc_info['stdout_file']:
+                        proc_info['stdout_file'].close()
+                except Exception:
+                    pass
+                try:
+                    if 'stderr_file' in proc_info and proc_info['stderr_file']:
+                        proc_info['stderr_file'].close()
+                except Exception:
+                    pass
                     
         print("\n✅ Rover manager shutdown complete")
         
