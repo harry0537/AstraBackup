@@ -14,6 +14,7 @@ from pymavlink import mavutil
 import os
 from PIL import Image
 import io
+import json as _json
 
 # Configuration (reads from environment or uses defaults)
 PIXHAWK_PORT = '/dev/pixhawk'  # udev symlink preferred
@@ -119,6 +120,17 @@ class DataRelay:
         """Send telemetry to dashboard"""
         self.telemetry['timestamp'] = datetime.now().isoformat()
         self.telemetry['status'] = 'OPERATIONAL'
+        # Try to enrich with proximity snapshot written by component 195
+        try:
+            with open('/tmp/proximity_v4.json', 'r') as f:
+                prox = _json.load(f)
+            self.telemetry['proximity'] = {
+                'sectors_cm': prox.get('sectors_cm', []),
+                'min_cm': prox.get('min_cm', None),
+                'ts': prox.get('timestamp', None)
+            }
+        except Exception:
+            pass
         
         try:
             response = requests.post(

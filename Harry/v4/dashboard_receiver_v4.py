@@ -89,6 +89,17 @@ STATUS_PAGE = """
             </div>
         </div>
         
+        <div class="section">
+            <h3>🧭 Proximity (Sectors)</h3>
+            {% if telemetry.proximity and telemetry.proximity.sectors_cm %}
+                <p>Min Distance: {{ telemetry.proximity.min_cm }} cm</p>
+                <p>Forward (0,1,7): {{ telemetry.proximity.sectors_cm[0] }}, {{ telemetry.proximity.sectors_cm[1] }}, {{ telemetry.proximity.sectors_cm[7] }}</p>
+                <p>All: {{ telemetry.proximity.sectors_cm }}</p>
+            {% else %}
+                <p>No proximity data yet</p>
+            {% endif %}
+        </div>
+        
         <div class="image-section">
             <h3>📸 Crop Monitoring</h3>
             {% if latest_image %}

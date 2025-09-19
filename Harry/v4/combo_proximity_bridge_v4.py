@@ -9,6 +9,8 @@ import threading
 import numpy as np
 from rplidar import RPLidar
 from pymavlink import mavutil
+import json
+import os
 
 # RealSense is optional; guard import for headless/absent setups
 try:
@@ -333,6 +335,21 @@ class ComboProximityBridge:
                 pass
 
         self.stats['messages_sent'] += self.num_sectors
+
+        # Also publish proximity locally for relay to pick up
+        try:
+            payload = {
+                'timestamp': time.time(),
+                'sectors_cm': fused,
+                'min_cm': int(min(fused)),
+            }
+            tmp_path = '/tmp/proximity_v4.json.tmp'
+            out_path = '/tmp/proximity_v4.json'
+            with open(tmp_path, 'w') as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, out_path)
+        except Exception:
+            pass
         
     def print_status(self):
         """Print system status"""
