@@ -11,9 +11,26 @@ def main():
     zip_url = os.environ.get('ASTRA_ZIP_URL', 'https://example.com/repo.zip')
 
     print(f"{APP_NAME} v{APP_VERSION}")
-    # Hint base dir as the current repo root containing the v5.1 scripts
-    base_dir_hint = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    run_cli_wizard(manifest_url, zip_url, base_dir_hint)
+    # Resolve base dir hint
+    if getattr(sys, 'frozen', False):
+        # Running from EXE; use the EXE directory for scripts
+        base_dir_hint = os.path.abspath(os.path.dirname(sys.executable))
+    else:
+        base_dir_hint = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+    try:
+        run_cli_wizard(manifest_url, zip_url, base_dir_hint)
+    except Exception as e:
+        msg = f"Fatal error: {e}"
+        print(msg)
+        # On Windows EXE, show a message box so double-click users can see the error
+        if os.name == 'nt':
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(0, msg, APP_NAME, 0x10)
+            except Exception:
+                pass
+        raise
 
 
 if __name__ == '__main__':

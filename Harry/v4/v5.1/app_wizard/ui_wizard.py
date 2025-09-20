@@ -41,6 +41,18 @@ def run_cli_wizard(manifest_url: str, zip_url: str, base_dir_hint: Optional[str]
 
     print("Step 3: Start components…")
     base_dir = base_dir_hint or target_dir
+    # Validate required scripts exist
+    required = [
+        os.path.join(base_dir, 'combo_proximity_bridge_v4.py'),
+        os.path.join(base_dir, 'rover_data_relay_v4.py'),
+    ]
+    missing = [p for p in required if not os.path.exists(p)]
+    if missing:
+        print("Required scripts not found:")
+        for p in missing:
+            print(" -", p)
+        print("Adjust ASTRA_MANIFEST_URL/ASTRA_ZIP_URL or place scripts in:", base_dir)
+        raise RuntimeError("Missing required scripts")
     pm = ProcessManager(base_dir)
     pm.start_proximity()
     pm.start_data_relay()

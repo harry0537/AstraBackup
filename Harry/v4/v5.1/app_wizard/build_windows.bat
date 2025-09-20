@@ -23,6 +23,9 @@ python -m PyInstaller --noconfirm --onefile --name AstraWizard --add-data "app_w
 
 echo.
 if exist dist\AstraWizard.exe (
+  echo Copying required scripts next to EXE...
+  copy /y combo_proximity_bridge_v4.py dist\ >nul
+  copy /y rover_data_relay_v4.py dist\ >nul
   echo Done. Find EXE under %CD%\dist\AstraWizard.exe
 ) else (
   echo Build finished but EXE not found in dist. Check build logs above.
