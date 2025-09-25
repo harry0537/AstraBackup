@@ -36,7 +36,7 @@ PIXHAWK_BAUD = 57600
 COMPONENTS = {
     195: {
         'name': 'Proximity Bridge',
-        'script': 'combo_proximity_bridge_v4.py',
+        'script': 'proximity_bridge_working_v4.py',
         'critical': True,
         'enabled': True
     },
@@ -168,6 +168,8 @@ class RoverManager:
                 break
         if not lidar_found:
             print(f"  ✗ RPLidar not found")
+        else:
+            results['rplidar'] = True
             
         # Check Pixhawk
         if os.path.exists(PIXHAWK_PORT) or os.path.exists('/dev/pixhawk'):
