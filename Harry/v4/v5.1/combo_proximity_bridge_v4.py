@@ -116,6 +116,16 @@ class ComboProximityBridge:
             if not REALSENSE_AVAILABLE:
                 return False
             print("Connecting to RealSense D435i")
+            
+            # Try to stop any existing pipeline first
+            if self.pipeline:
+                try:
+                    self.pipeline.stop()
+                except:
+                    pass
+                self.pipeline = None
+                time.sleep(0.5)
+            
             self.pipeline = rs.pipeline()
             config = rs.config()
             # Lower resolution and frame rate to reduce CPU and improve stability
@@ -196,28 +206,53 @@ class ComboProximityBridge:
                     self.lidar.start_motor()
                 except Exception:
                     pass
-                time.sleep(0.2)
+                time.sleep(0.3)  # Slightly longer for stabilization
 
                 scan_data = []
                 measurement_count = 0
                 start_time = time.time()
 
-                for measurement in self.lidar.iter_measurments():
-                    if not self.running:
-                        break
-                    if len(measurement) >= 4:
-                        _, quality, angle, distance = measurement[:4]
-                        if quality >= self.quality_threshold and distance > 0:
-                            scan_data.append((quality, angle, distance))
+                # Use iter_scans for more reliable data collection
+                try:
+                    for scan in self.lidar.iter_scans(max_buf_meas=100):
+                        if not self.running:
+                            break
+                            
+                        for measurement in scan:
+                            if len(measurement) >= 3:
+                                quality, angle, distance = measurement[:3]
+                                if quality >= self.quality_threshold and distance > 0:
+                                    scan_data.append((quality, angle, distance))
+                            
+                            measurement_count += 1
+                            # Keep loops short to avoid buffer buildup
+                            if len(scan_data) > 30 and time.time() - start_time > 0.8:
+                                break
+                            if measurement_count > 300 or time.time() - start_time > 1.5:
+                                break
+                        
+                        # Break after first good scan
+                        if len(scan_data) > 10:
+                            break
+                            
+                except Exception as e:
+                    # Fallback to iter_measurments if iter_scans fails
+                    for measurement in self.lidar.iter_measurments():
+                        if not self.running:
+                            break
+                        if len(measurement) >= 4:
+                            _, quality, angle, distance = measurement[:4]
+                            if quality >= self.quality_threshold and distance > 0:
+                                scan_data.append((quality, angle, distance))
 
-                    measurement_count += 1
-                    # Keep loops short to avoid buffer buildup
-                    if len(scan_data) > 20 and time.time() - start_time > 0.5:
-                        break
-                    if measurement_count > 200 or time.time() - start_time > 1.0:
-                        break
+                        measurement_count += 1
+                        # Keep loops short to avoid buffer buildup
+                        if len(scan_data) > 20 and time.time() - start_time > 0.5:
+                            break
+                        if measurement_count > 200 or time.time() - start_time > 1.0:
+                            break
 
-                if len(scan_data) > 10:
+                if len(scan_data) > 5:  # Lower threshold for success
                     sectors = [self.max_distance_cm] * self.num_sectors
                     for _, angle, distance_mm in [(q, a, d) for (q, a, d) in scan_data]:
                         distance_cm = max(self.min_distance_cm, min(int(distance_mm / 10), self.max_distance_cm))
@@ -233,25 +268,29 @@ class ComboProximityBridge:
                     self.lidar.stop()
                 except Exception:
                     pass
-                time.sleep(0.2)
+                time.sleep(0.3)  # Longer pause between scans
 
-            except Exception:
+            except Exception as e:
                 error_count += 1
                 self.stats['lidar_errors'] += 1
+                print(f"LiDAR error: {e}")
                 self.aggressive_buffer_clear()
-                if error_count > 5:
+                if error_count > 3:  # Faster reconnection
                     try:
                         self.lidar.stop()
                         self.lidar.stop_motor()
                         self.lidar.disconnect()
                     except Exception:
                         pass
-                    time.sleep(1.0)
+                    time.sleep(0.5)
                     self.connect_lidar()
                     error_count = 0
+                else:
+                    time.sleep(0.2)
                     
     def realsense_thread(self):
         """Thread for RealSense depth processing focusing on forward sectors."""
+        error_count = 0
         while self.running:
             if not self.pipeline:
                 time.sleep(0.5)
@@ -264,6 +303,8 @@ class ComboProximityBridge:
                 if not depth_frame:
                     time.sleep(0.05)
                     continue
+                
+                error_count = 0  # Reset on success
 
                 width = depth_frame.get_width()
                 height = depth_frame.get_height()
@@ -297,9 +338,21 @@ class ComboProximityBridge:
                     self.realsense_sectors = sectors
                 self.stats['realsense_success'] += 1
 
-            except Exception:
-                # Silent fail for RealSense
-                time.sleep(0.05)
+            except Exception as e:
+                error_count += 1
+                if "Device or resource busy" in str(e) or error_count > 5:
+                    print(f"RealSense error: {e}")
+                    # Try to reconnect
+                    try:
+                        self.pipeline.stop()
+                    except:
+                        pass
+                    self.pipeline = None
+                    time.sleep(1.0)
+                    self.connect_realsense()
+                    error_count = 0
+                else:
+                    time.sleep(0.05)
                 
     def fuse_and_send(self):
         """Fuse LiDAR/RealSense sector data and send MAVLink messages."""
@@ -310,13 +363,21 @@ class ComboProximityBridge:
             lidar = self.lidar_sectors.copy()
             rsc = self.realsense_sectors.copy()
 
-        # Fuse: forward sectors (0,1,7) prefer RealSense, else LiDAR
+        # Fuse: Use the closest distance from either sensor for each sector
         fused = [self.max_distance_cm] * self.num_sectors
         for i in range(self.num_sectors):
-            if i in [0, 1, 7]:
-                fused[i] = min(rsc[i], lidar[i])
-            else:
-                fused[i] = min(lidar[i], rsc[i])
+            # Get valid distances from both sensors
+            lidar_dist = lidar[i] if lidar[i] < self.max_distance_cm else None
+            rs_dist = rsc[i] if rsc[i] < self.max_distance_cm else None
+            
+            # Use the closest valid distance
+            if lidar_dist is not None and rs_dist is not None:
+                fused[i] = min(lidar_dist, rs_dist)
+            elif lidar_dist is not None:
+                fused[i] = lidar_dist
+            elif rs_dist is not None:
+                fused[i] = rs_dist
+            # else keep max_distance_cm (no valid data)
 
         # Mission Planner-friendly orientation mapping for 8 sectors
         orientations = [0, 2, 2, 4, 4, 6, 6, 0]
