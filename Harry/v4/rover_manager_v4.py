@@ -338,6 +338,21 @@ class RoverManager:
                 print(f"{comp_name:<20} {status:<12} {pid:<8} {uptime:<15} {restarts}")
                 
             print("-" * 60)
+
+            # Live proximity snapshot (if available)
+            try:
+                with open('/tmp/proximity_v4.json', 'r') as f:
+                    prox = json.load(f)
+                sectors = prox.get('sectors_cm', [])
+                min_cm = prox.get('min_cm', None)
+                if sectors:
+                    sectors_str = ' '.join(f"{int(x):4d}" for x in sectors)
+                    print(f"Proximity (cm): {sectors_str}")
+                if min_cm is not None:
+                    print(f"Closest: {min_cm} cm")
+            except Exception:
+                pass
+
             print(f"Dashboard: http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
             print(f"MAVLink:   UDP port {self.config['mavlink_port']}")
             print("\nPress Ctrl+C for graceful shutdown")

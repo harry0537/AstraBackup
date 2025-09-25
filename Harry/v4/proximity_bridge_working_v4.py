@@ -8,6 +8,8 @@ import time
 import sys
 import numpy as np
 import threading
+import json
+import os
 from rplidar import RPLidar
 from pymavlink import mavutil
 
@@ -47,6 +49,22 @@ class FixedComboProximityBridge:
         self.realsense_success_count = 0
         self.total_cycles = 0
         
+    def publish_proximity_snapshot(self):
+        """Write fused sector distances to /tmp for other components."""
+        try:
+            payload = {
+                'timestamp': time.time(),
+                'sectors_cm': self.fused_sectors,
+                'min_cm': int(min(self.fused_sectors)) if self.fused_sectors else None,
+            }
+            tmp_path = '/tmp/proximity_v4.json.tmp'
+            out_path = '/tmp/proximity_v4.json'
+            with open(tmp_path, 'w') as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, out_path)
+        except Exception:
+            pass
+
     def _yield_lidar_measurements(self):
         """Yield lidar measurements across differing library method names.
         Tries iter_measurments (legacy), iter_measurements (fixed), or falls back to iter_scans.
@@ -369,6 +387,7 @@ class FixedComboProximityBridge:
                 # Fuse and send data
                 self.fuse_sensor_data()
                 self.send_proximity_data(self.fused_sectors)
+                self.publish_proximity_snapshot()
                 
                 # Status
                 obstacles = sum(1 for d in self.fused_sectors if d < self.max_distance_cm)
