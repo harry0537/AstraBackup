@@ -57,19 +57,31 @@ class ComboProximityBridge:
         try:
             if self.lidar and hasattr(self.lidar, '_serial') and self.lidar._serial:
                 serial_conn = self.lidar._serial
-                for _ in range(3):
+                
+                # Check buffer size and warn if too large
+                in_waiting = getattr(serial_conn, 'in_waiting', 0)
+                if in_waiting > 100:
+                    print(f"Too many bytes in the input buffer: {in_waiting}/100. Cleaning buffer...")
+                
+                # Multiple aggressive clearing attempts
+                for _ in range(5):
                     try:
                         serial_conn.reset_input_buffer()
                         serial_conn.reset_output_buffer()
                     except Exception:
                         pass
-                    time.sleep(0.05)
-                # Drain any remaining data
+                    time.sleep(0.02)
+                
+                # Drain any remaining data more aggressively
                 try:
-                    while getattr(serial_conn, 'in_waiting', 0) > 0:
-                        try:
-                            serial_conn.read(serial_conn.in_waiting)
-                        except Exception:
+                    for _ in range(10):  # More attempts
+                        in_waiting = getattr(serial_conn, 'in_waiting', 0)
+                        if in_waiting > 0:
+                            try:
+                                serial_conn.read(min(in_waiting, 1000))  # Read in chunks
+                            except Exception:
+                                break
+                        else:
                             break
                         time.sleep(0.01)
                 except Exception:
@@ -124,7 +136,15 @@ class ComboProximityBridge:
                 except:
                     pass
                 self.pipeline = None
+                time.sleep(1.0)  # Longer wait for device release
+            
+            # Additional device release attempt
+            try:
+                import subprocess
+                subprocess.run(['sudo', 'fuser', '-k', '/dev/video*'], capture_output=True)
                 time.sleep(0.5)
+            except:
+                pass
             
             self.pipeline = rs.pipeline()
             config = rs.config()
@@ -212,9 +232,12 @@ class ComboProximityBridge:
                 measurement_count = 0
                 start_time = time.time()
 
-                # Use iter_scans for more reliable data collection
+                # Use iter_scans for more reliable data collection with buffer management
                 try:
-                    for scan in self.lidar.iter_scans(max_buf_meas=100):
+                    # Clear buffer before starting
+                    self.aggressive_buffer_clear()
+                    
+                    for scan in self.lidar.iter_scans(max_buf_meas=50):  # Smaller buffer
                         if not self.running:
                             break
                             
@@ -226,14 +249,18 @@ class ComboProximityBridge:
                             
                             measurement_count += 1
                             # Keep loops short to avoid buffer buildup
-                            if len(scan_data) > 30 and time.time() - start_time > 0.8:
+                            if len(scan_data) > 20 and time.time() - start_time > 0.6:
                                 break
-                            if measurement_count > 300 or time.time() - start_time > 1.5:
+                            if measurement_count > 150 or time.time() - start_time > 1.0:
                                 break
                         
                         # Break after first good scan
-                        if len(scan_data) > 10:
+                        if len(scan_data) > 5:
                             break
+                            
+                        # Clear buffer between scans if needed
+                        if measurement_count > 50:
+                            self.aggressive_buffer_clear()
                             
                 except Exception as e:
                     # Fallback to iter_measurments if iter_scans fails
@@ -340,19 +367,27 @@ class ComboProximityBridge:
 
             except Exception as e:
                 error_count += 1
-                if "Device or resource busy" in str(e) or error_count > 5:
+                if "Device or resource busy" in str(e) or error_count > 3:
                     print(f"RealSense error: {e}")
-                    # Try to reconnect
+                    # Try to reconnect with device release
                     try:
                         self.pipeline.stop()
                     except:
                         pass
                     self.pipeline = None
-                    time.sleep(1.0)
+                    
+                    # Force device release
+                    try:
+                        import subprocess
+                        subprocess.run(['sudo', 'fuser', '-k', '/dev/video*'], capture_output=True)
+                        time.sleep(1.0)
+                    except:
+                        time.sleep(1.0)
+                    
                     self.connect_realsense()
                     error_count = 0
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.1)
                 
     def fuse_and_send(self):
         """Fuse LiDAR/RealSense sector data and send MAVLink messages."""
