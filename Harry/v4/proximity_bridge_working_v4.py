@@ -47,6 +47,30 @@ class FixedComboProximityBridge:
         self.realsense_success_count = 0
         self.total_cycles = 0
         
+    def _yield_lidar_measurements(self):
+        """Yield lidar measurements across differing library method names.
+        Tries iter_measurments (legacy), iter_measurements (fixed), or falls back to iter_scans.
+        Yields tuples compatible with downstream parsing.
+        """
+        if hasattr(self.lidar, 'iter_measurments'):
+            for m in self.lidar.iter_measurments():
+                yield m
+            return
+        if hasattr(self.lidar, 'iter_measurements'):
+            for m in self.lidar.iter_measurements():
+                yield m
+            return
+        if hasattr(self.lidar, 'iter_scans'):
+            for scan in self.lidar.iter_scans():
+                for item in scan:
+                    if isinstance(item, (list, tuple)) and len(item) == 3:
+                        q, a, d = item
+                        yield (0, q, a, d)
+                    else:
+                        yield item
+            return
+        raise AttributeError("RPLidar iterator method not found")
+
     def aggressive_buffer_clear(self):
         """Aggressively clear RPLidar buffers"""
         try:
@@ -168,12 +192,16 @@ class FixedComboProximityBridge:
                 measurement_count = 0
                 start_time = time.time()
                 
-                for measurement in self.lidar.iter_measurments():
+                for measurement in self._yield_lidar_measurements():
                     if not self.lidar_thread_running:
                         break
                         
                     if len(measurement) >= 4:
                         _, quality, angle, distance = measurement[:4]
+                    elif len(measurement) == 3:
+                        quality, angle, distance = measurement
+                    else:
+                        continue
                         
                         if quality >= self.quality_threshold and distance > 0:
                             scan_data.append((quality, angle, distance))
