@@ -69,7 +69,7 @@ def ensure_devices():
 def start_processes():
     procs = []
     # Start working proximity bridge
-    procs.append(subprocess.Popen([sys.executable, 'proximity_bridge_working_v4.py']))
+    procs.append(subprocess.Popen([sys.executable, 'combo_proximity_bridge_v4.py']))
     time.sleep(1)
     # Start data relay (non-blocking)
     procs.append(subprocess.Popen([sys.executable, 'rover_data_relay_v4.py']))

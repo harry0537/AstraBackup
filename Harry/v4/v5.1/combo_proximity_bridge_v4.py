@@ -258,7 +258,8 @@ class ComboProximityBridge:
                 continue
 
             try:
-                frames = self.pipeline.wait_for_frames(timeout_ms=300)
+                # Some pyrealsense2 builds do not support timeout arg; use default blocking then non-blocking check
+                frames = self.pipeline.wait_for_frames()
                 depth_frame = frames.get_depth_frame()
                 if not depth_frame:
                     time.sleep(0.05)

@@ -214,6 +214,17 @@ def get_commands():
     # Get commands and clear queue
     commands = command_queue.copy()
     command_queue = []
+
+    # Ensure timestamps are JSON-serializable (ISO strings)
+    for c in commands:
+        ts = c.get('timestamp')
+        if hasattr(ts, 'isoformat'):
+            c['timestamp'] = ts.isoformat()
+        elif ts is not None:
+            try:
+                c['timestamp'] = str(ts)
+            except Exception:
+                c['timestamp'] = None
     
     return jsonify(commands), 200
 
