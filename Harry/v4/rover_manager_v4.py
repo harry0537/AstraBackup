@@ -344,12 +344,32 @@ class RoverManager:
                 with open('/tmp/proximity_v4.json', 'r') as f:
                     prox = json.load(f)
                 sectors = prox.get('sectors_cm', [])
+                lidar_cm = prox.get('lidar_cm', [])
+                rs_cm = prox.get('realsense_cm', [])
                 min_cm = prox.get('min_cm', None)
+                tx = prox.get('messages_sent', None)
+                ts = prox.get('timestamp', None)
+                age = None
+                try:
+                    if ts is not None:
+                        age = time.time() - float(ts)
+                except Exception:
+                    age = None
+
                 if sectors:
                     sectors_str = ' '.join(f"{int(x):4d}" for x in sectors)
                     print(f"Proximity (cm): {sectors_str}")
+                if lidar_cm:
+                    print(f"  LiDAR    (cm): {' '.join(f'{int(x):4d}' for x in lidar_cm)}")
+                if rs_cm:
+                    print(f"  RealSense(cm): {' '.join(f'{int(x):4d}' for x in rs_cm)}")
                 if min_cm is not None:
-                    print(f"Closest: {min_cm} cm")
+                    print(f"Closest: {min_cm} cm", end='')
+                    if age is not None:
+                        print(f" | Age: {age:.1f}s", end='')
+                    if tx is not None:
+                        print(f" | TX msgs: {int(tx)}", end='')
+                    print("")
             except Exception:
                 pass
 

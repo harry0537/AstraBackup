@@ -55,6 +55,9 @@ class FixedComboProximityBridge:
                 'timestamp': time.time(),
                 'sectors_cm': self.fused_sectors,
                 'min_cm': int(min(self.fused_sectors)) if self.fused_sectors else None,
+                'lidar_cm': getattr(self, 'lidar_sectors', []),
+                'realsense_cm': getattr(self, 'realsense_sectors', []),
+                'messages_sent': int(getattr(self, 'lidar_success_count', 0)) * 8,
             }
             tmp_path = '/tmp/proximity_v4.json.tmp'
             out_path = '/tmp/proximity_v4.json'
@@ -339,7 +342,8 @@ class FixedComboProximityBridge:
         """Send DISTANCE_SENSOR messages to Pixhawk"""
         try:
             timestamp = int(time.time() * 1000) & 0xFFFFFFFF
-            orientations = [0, 2, 2, 4, 4, 6, 6, 0]
+            # Use 8 unique orientations (0..7) for Mission Planner proximity
+            orientations = [0, 1, 2, 3, 4, 5, 6, 7]
             
             for sector_id, distance in enumerate(sector_distances):
                 self.mavlink.mav.distance_sensor_send(
@@ -347,7 +351,8 @@ class FixedComboProximityBridge:
                     min_distance=self.min_distance_cm,
                     max_distance=self.max_distance_cm,
                     current_distance=distance,
-                    type=1,
+                    # 0=Laser, 1=Ultrasonic; S3 acts like laser for MP
+                    type=0,
                     id=sector_id,
                     orientation=orientations[sector_id],
                     covariance=0
