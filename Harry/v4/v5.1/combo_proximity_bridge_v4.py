@@ -60,8 +60,8 @@ class ComboProximityBridge:
                 
                 # Check buffer size and warn if too large
                 in_waiting = getattr(serial_conn, 'in_waiting', 0)
-                if in_waiting > 100:
-                    print(f"Too many bytes in the input buffer: {in_waiting}/100. Cleaning buffer...")
+                if in_waiting > 50:  # Lower threshold
+                    print(f"Too many bytes in the input buffer: {in_waiting}/50. Cleaning buffer...")
                 
                 # Multiple aggressive clearing attempts
                 for _ in range(5):
@@ -110,9 +110,38 @@ class ComboProximityBridge:
             # Aggressive initial buffer clearing (like working script)
             self.aggressive_buffer_clear()
 
-            info = self.lidar.get_info()
-            health = self.lidar.get_health()
-            print(f"✓ RPLidar connected: Model {info.get('model')}, Health: {health[0]}")
+            # Get info and health with error handling
+            try:
+                info = self.lidar.get_info()
+                print(f"Debug: get_info() returned: {type(info)} = {info}")
+            except Exception as e:
+                print(f"Debug: get_info() failed: {e}")
+                info = None
+                
+            try:
+                health = self.lidar.get_health()
+                print(f"Debug: get_health() returned: {type(health)} = {health}")
+            except Exception as e:
+                print(f"Debug: get_health() failed: {e}")
+                health = None
+            
+            # Handle different return types from get_info()
+            if isinstance(info, dict):
+                model = info.get('model', 'Unknown')
+            elif isinstance(info, str):
+                model = info
+            else:
+                model = str(info) if info else 'Unknown'
+                
+            # Handle different return types from get_health()
+            if isinstance(health, (list, tuple)) and len(health) > 0:
+                health_status = health[0]
+            elif isinstance(health, str):
+                health_status = health
+            else:
+                health_status = str(health) if health else 'Unknown'
+                
+            print(f"✓ RPLidar connected: Model {model}, Health: {health_status}")
 
             # Do NOT start motor here; lidar thread manages motor bursts
             return True
@@ -138,11 +167,15 @@ class ComboProximityBridge:
                 self.pipeline = None
                 time.sleep(1.0)  # Longer wait for device release
             
-            # Additional device release attempt
+            # Additional device release attempt - more aggressive
             try:
                 import subprocess
+                # Kill any processes using video devices
                 subprocess.run(['sudo', 'fuser', '-k', '/dev/video*'], capture_output=True)
-                time.sleep(0.5)
+                subprocess.run(['sudo', 'fuser', '-k', '/dev/bus/usb/*'], capture_output=True)
+                # Reset USB devices
+                subprocess.run(['sudo', 'usb_modeswitch', '-R'], capture_output=True)
+                time.sleep(1.0)
             except:
                 pass
             
@@ -169,6 +202,20 @@ class ComboProximityBridge:
                                '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00']
             candidate_ports += [f'/dev/ttyACM{i}' for i in range(4)]
             last_error = None
+            
+            # Check if any process is using the ports
+            import subprocess
+            try:
+                for port in candidate_ports:
+                    if os.path.exists(port):
+                        result = subprocess.run(['lsof', port], capture_output=True, text=True)
+                        if result.stdout:
+                            print(f"Port {port} is in use, trying to free it...")
+                            subprocess.run(['sudo', 'fuser', '-k', port], capture_output=True)
+                            time.sleep(0.5)
+            except:
+                pass
+                
             for port in candidate_ports:
                 try:
                     print(f"Connecting to Pixhawk at {port}")
@@ -178,12 +225,13 @@ class ComboProximityBridge:
                         source_system=1,
                         source_component=COMPONENT_ID
                     )
-                    self.mavlink.wait_heartbeat(timeout=10)
+                    self.mavlink.wait_heartbeat(timeout=5)  # Shorter timeout
                     print("✓ Connected to Pixhawk")
                     break
                 except Exception as e:
                     last_error = e
                     self.mavlink = None
+                    time.sleep(0.5)  # Brief pause between attempts
             if not self.mavlink:
                 raise last_error or RuntimeError('No Pixhawk port available')
 
@@ -237,7 +285,13 @@ class ComboProximityBridge:
                     # Clear buffer before starting
                     self.aggressive_buffer_clear()
                     
-                    for scan in self.lidar.iter_scans(max_buf_meas=50):  # Smaller buffer
+                    # Check buffer before each scan
+                    if hasattr(self.lidar, '_serial') and self.lidar._serial:
+                        in_waiting = getattr(self.lidar._serial, 'in_waiting', 0)
+                        if in_waiting > 20:  # Very aggressive clearing
+                            self.aggressive_buffer_clear()
+                    
+                    for scan in self.lidar.iter_scans(max_buf_meas=30):  # Even smaller buffer
                         if not self.running:
                             break
                             
@@ -259,8 +313,14 @@ class ComboProximityBridge:
                             break
                             
                         # Clear buffer between scans if needed
-                        if measurement_count > 50:
+                        if measurement_count > 20:  # More frequent clearing
                             self.aggressive_buffer_clear()
+                            
+                        # Check buffer during scan
+                        if hasattr(self.lidar, '_serial') and self.lidar._serial:
+                            in_waiting = getattr(self.lidar._serial, 'in_waiting', 0)
+                            if in_waiting > 30:
+                                self.aggressive_buffer_clear()
                             
                 except Exception as e:
                     # Fallback to iter_measurments if iter_scans fails
