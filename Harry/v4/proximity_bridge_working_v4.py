@@ -223,9 +223,9 @@ class FixedComboProximityBridge:
                         quality, angle, distance = measurement
                     else:
                         continue
-                        
-                        if quality >= self.quality_threshold and distance > 0:
-                            scan_data.append((quality, angle, distance))
+                    
+                    if quality >= self.quality_threshold and distance > 0:
+                        scan_data.append((quality, angle, distance))
                     
                     measurement_count += 1
                     
