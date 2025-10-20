@@ -33,6 +33,12 @@ COMPONENTS = {
         'script': 'simple_crop_monitor_v7.py',
         'critical': False,
         'enabled': True
+    },
+    199: {
+        'name': 'Telemetry Dashboard',
+        'script': 'telemetry_dashboard_v7.py',
+        'critical': False,
+        'enabled': True
     }
 }
 
