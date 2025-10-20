@@ -18,7 +18,7 @@ echo.
 
 REM Download and install ZeroTier
 echo Downloading ZeroTier...
-powershell -Command "Invoke-WebRequest -Uri 'https://download.zerotier.com/dist/ZeroTier%20One.msi' -OutFile 'ZeroTier.msi'"
+powershell -Command "Invoke-WebRequest -Uri 'https://download.zerotier.com/RELEASES/1.16.0/dist/ZeroTier%20One.msi' -OutFile 'ZeroTier.msi'"
 
 if exist ZeroTier.msi (
     echo Installing ZeroTier...
