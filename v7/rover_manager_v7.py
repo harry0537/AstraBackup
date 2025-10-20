@@ -66,7 +66,7 @@ class RoverManager:
         print("-" * 40)
         
         checks = {
-            'lidar': os.path.exists('/dev/ttyUSB0'),
+            'lidar': os.path.exists('/dev/ttyUSB1'),
             'pixhawk': any(os.path.exists(p) for p in [
                 '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00',
                 '/dev/ttyACM0'

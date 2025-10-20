@@ -21,7 +21,7 @@ except ImportError:
     REALSENSE_AVAILABLE = False
 
 # Hardware configuration
-LIDAR_PORT = '/dev/ttyUSB0'
+LIDAR_PORT = '/dev/ttyUSB1'
 PIXHAWK_PORT = '/dev/ttyACM0'
 PIXHAWK_BAUD = 57600
 COMPONENT_ID = 195
