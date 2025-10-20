@@ -59,18 +59,39 @@ class RoverManager:
             except:
                 pass
         return default
+    
+    def load_hardware_config(self):
+        """Load hardware configuration from config file"""
+        default_hardware = {
+            'lidar_port': '/dev/ttyUSB1',
+            'pixhawk_port': '/dev/ttyACM0',
+            'realsense_config': {'width': 424, 'height': 240, 'fps': 15}
+        }
+        
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                    return {
+                        'lidar_port': config.get('lidar_port', default_hardware['lidar_port']),
+                        'pixhawk_port': config.get('pixhawk_port', default_hardware['pixhawk_port']),
+                        'realsense_config': config.get('realsense_config', default_hardware['realsense_config'])
+                    }
+            except:
+                pass
+        return default_hardware
         
     def check_hardware(self):
         """Quick hardware validation"""
         print("\n[Hardware Check]")
         print("-" * 40)
         
+        # Load hardware configuration
+        hardware_config = self.load_hardware_config()
+        
         checks = {
-            'lidar': os.path.exists('/dev/ttyUSB1'),
-            'pixhawk': any(os.path.exists(p) for p in [
-                '/dev/serial/by-id/usb-Holybro_Pixhawk6C_1C003C000851333239393235-if00',
-                '/dev/ttyACM0'
-            ]),
+            'lidar': os.path.exists(hardware_config.get('lidar_port', '/dev/ttyUSB1')),
+            'pixhawk': os.path.exists(hardware_config.get('pixhawk_port', '/dev/ttyACM0')),
             'permissions': 'dialout' in str(subprocess.run(['groups'], 
                                            capture_output=True).stdout)
         }

@@ -9,6 +9,8 @@ import sys
 import subprocess
 import json
 import socket
+import glob
+import time
 
 CONFIG_FILE = "rover_config_v7.json"
 
@@ -129,36 +131,162 @@ def configure_network():
     except:
         print("⚠ Cannot ping dashboard")
     
-    # Save config
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
-    print(f"✓ Config saved to {CONFIG_FILE}")
-    
     return config
 
-def test_hardware():
-    """Test hardware connections"""
-    print("\n[4/4] Hardware Test")
+def detect_hardware():
+    """Auto-detect all hardware and return addresses"""
+    print("\n[4/4] Hardware Detection")
     print("-" * 40)
     
-    # LiDAR
-    if any(os.path.exists(p) for p in ['/dev/rplidar', '/dev/ttyUSB0']):
+    hardware = {
+        'lidar_port': None,
+        'pixhawk_port': None,
+        'realsense_available': False,
+        'realsense_config': None
+    }
+    
+    # Detect LIDAR
+    print("Detecting RPLidar...")
+    lidar_candidates = [
+        '/dev/rplidar',  # Symlink from udev rules
+        '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2', '/dev/ttyUSB3',
+        '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2', '/dev/ttyACM3'
+    ]
+    
+    for port in lidar_candidates:
+        if os.path.exists(port):
+            try:
+                # Quick test to verify it's a LIDAR
+                from rplidar import RPLidar
+                test_lidar = RPLidar(port, baudrate=1000000, timeout=1)
+                info = test_lidar.get_info()
+                test_lidar.disconnect()
+                hardware['lidar_port'] = port
+                print(f"✓ RPLidar detected at {port} (Model: {info['model']})")
+                break
+            except:
+                continue
+    
+    if not hardware['lidar_port']:
+        print("⚠ RPLidar not found")
+    
+    # Detect Pixhawk
+    print("Detecting Pixhawk...")
+    pixhawk_candidates = [
+        '/dev/pixhawk',  # Symlink from udev rules
+        '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2', '/dev/ttyACM3',
+        '/dev/serial/by-id/usb-Holybro_Pixhawk6C_*',
+        '/dev/serial/by-id/usb-3D_Robotics_PX4_*'
+    ]
+    
+    for pattern in pixhawk_candidates:
+        if '*' in pattern:
+            # Handle glob patterns
+            matches = glob.glob(pattern)
+            for port in matches:
+                if os.path.exists(port):
+                    try:
+                        # Quick test to verify it's a Pixhawk
+                        from pymavlink import mavutil
+                        test_conn = mavutil.mavlink_connection(port, baud=57600, timeout=2)
+                        test_conn.wait_heartbeat(timeout=2)
+                        test_conn.close()
+                        hardware['pixhawk_port'] = port
+                        print(f"✓ Pixhawk detected at {port}")
+                        break
+                    except:
+                        continue
+        else:
+            if os.path.exists(pattern):
+                try:
+                    from pymavlink import mavutil
+                    test_conn = mavutil.mavlink_connection(pattern, baud=57600, timeout=2)
+                    test_conn.wait_heartbeat(timeout=2)
+                    test_conn.close()
+                    hardware['pixhawk_port'] = pattern
+                    print(f"✓ Pixhawk detected at {pattern}")
+                    break
+                except:
+                    continue
+    
+    if not hardware['pixhawk_port']:
+        print("⚠ Pixhawk not found")
+    
+    # Detect RealSense
+    print("Detecting RealSense...")
+    try:
+        import pyrealsense2 as rs
+        hardware['realsense_available'] = True
+        
+        # Test different configurations to find working one
+        configs_to_try = [
+            (rs.stream.depth, 424, 240, rs.format.z16, 15),
+            (rs.stream.depth, 320, 240, rs.format.z16, 15),
+            (rs.stream.depth, 640, 480, rs.format.z16, 6),
+        ]
+        
+        for i, (stream, width, height, format, fps) in enumerate(configs_to_try):
+            try:
+                pipeline = rs.pipeline()
+                config = rs.config()
+                config.enable_stream(stream, width, height, format, fps)
+                pipeline.start(config)
+                
+                # Test frame capture
+                for attempt in range(5):
+                    try:
+                        frames = pipeline.wait_for_frames(timeout_ms=2000)
+                        if frames.get_depth_frame():
+                            hardware['realsense_config'] = {
+                                'width': width,
+                                'height': height,
+                                'fps': fps
+                            }
+                            print(f"✓ RealSense detected - {width}x{height} @ {fps}fps")
+                            pipeline.stop()
+                            break
+                    except:
+                        if attempt < 4:
+                            time.sleep(0.5)
+                        continue
+                else:
+                    pipeline.stop()
+                    continue
+                break
+            except:
+                continue
+        
+        if not hardware['realsense_config']:
+            print("⚠ RealSense detected but no working configuration found")
+        else:
+            print("✓ RealSense configuration optimized")
+            
+    except ImportError:
+        print("⚠ RealSense library not found")
+    
+    return hardware
+
+def test_hardware():
+    """Test hardware connections (legacy function)"""
+    hardware = detect_hardware()
+    
+    # Print summary
+    if hardware['lidar_port']:
         print("✓ RPLidar detected")
     else:
         print("⚠ RPLidar not found")
     
-    # Pixhawk
-    if any(os.path.exists(p) for p in ['/dev/pixhawk', '/dev/ttyACM0']):
+    if hardware['pixhawk_port']:
         print("✓ Pixhawk detected")
     else:
         print("⚠ Pixhawk not found")
     
-    # RealSense
-    try:
-        import pyrealsense2
+    if hardware['realsense_available']:
         print("✓ RealSense library available")
-    except:
+    else:
         print("⚠ RealSense library not found")
+    
+    return hardware
 
 def create_service():
     """Optionally create systemd service"""
@@ -221,8 +349,17 @@ def main():
     
     install_dependencies()
     setup_permissions()
-    configure_network()
-    test_hardware()
+    network_config = configure_network()
+    hardware_config = detect_hardware()
+    
+    # Merge all configurations
+    full_config = {**network_config, **hardware_config}
+    
+    # Save complete configuration
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(full_config, f, indent=2)
+    print(f"\n✓ Complete config saved to {CONFIG_FILE}")
+    
     create_service()
     print_summary()
 

@@ -20,34 +20,37 @@ try:
 except ImportError:
     REALSENSE_AVAILABLE = False
 
-# Hardware configuration - Auto-detect LIDAR port
-def find_lidar_port():
-    """Auto-detect LIDAR port"""
-    import glob
-    # Check common LIDAR ports in order of preference
-    candidates = ['/dev/ttyUSB1', '/dev/ttyUSB0', '/dev/ttyACM0', '/dev/ttyACM1']
+# Hardware configuration - Load from config file
+def load_hardware_config():
+    """Load hardware configuration from rover_config_v7.json"""
+    config_file = "rover_config_v7.json"
+    default_config = {
+        'lidar_port': '/dev/ttyUSB1',
+        'pixhawk_port': '/dev/ttyACM0',
+        'realsense_config': {'width': 424, 'height': 240, 'fps': 15}
+    }
     
-    for port in candidates:
-        if os.path.exists(port):
-            try:
-                # Quick test to see if it's a LIDAR
-                test_lidar = RPLidar(port, baudrate=1000000, timeout=0.5)
-                info = test_lidar.get_info()
-                test_lidar.disconnect()
-                print(f"[AUTO-DETECT] Found LIDAR at {port}: {info['model']}")
-                return port
-            except:
-                continue
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                print(f"[CONFIG] Loaded hardware config from {config_file}")
+                return {
+                    'lidar_port': config.get('lidar_port', default_config['lidar_port']),
+                    'pixhawk_port': config.get('pixhawk_port', default_config['pixhawk_port']),
+                    'realsense_config': config.get('realsense_config', default_config['realsense_config'])
+                }
+        except Exception as e:
+            print(f"[WARNING] Failed to load config: {e}, using defaults")
     
-    # Fallback to first available USB port
-    usb_ports = glob.glob('/dev/ttyUSB*')
-    if usb_ports:
-        return usb_ports[0]
-    
-    return '/dev/ttyUSB1'  # Default fallback
+    print("[WARNING] Using default hardware configuration")
+    return default_config
 
-LIDAR_PORT = find_lidar_port()
-PIXHAWK_PORT = '/dev/ttyACM0'
+# Load hardware configuration
+HARDWARE_CONFIG = load_hardware_config()
+LIDAR_PORT = HARDWARE_CONFIG['lidar_port']
+PIXHAWK_PORT = HARDWARE_CONFIG['pixhawk_port']
+REALSENSE_CONFIG = HARDWARE_CONFIG['realsense_config']
 PIXHAWK_BAUD = 57600
 COMPONENT_ID = 195
 
@@ -84,6 +87,10 @@ class ComboProximityBridge:
         self.suppress_warnings = True
         self.lidar_retry_count = 0
         self.max_lidar_retries = 5
+        
+        # RealSense retry settings
+        self.realsense_retry_count = 0
+        self.max_realsense_retries = 3
 
     def connect_lidar(self):
         """Connect to RPLidar S3 - IMPROVED with retry logic"""
@@ -121,24 +128,92 @@ class ComboProximityBridge:
         return False
             
     def connect_realsense(self):
-        """Connect to Intel RealSense D435i - PRIMARY SENSOR"""
+        """Connect to Intel RealSense D435i - PRIMARY SENSOR with proper initialization"""
         try:
             if not REALSENSE_AVAILABLE:
+                print("[ERROR] RealSense library not available")
                 return False
+                
             print("Connecting RealSense D435i (PRIMARY forward sensor)")
+            
+            # Create pipeline and config
             self.pipeline = rs.pipeline()
             config = rs.config()
-            # Higher framerate for better responsiveness
-            config.enable_stream(rs.stream.depth, 424, 240, rs.format.z16, 30)
-            self.pipeline.start(config)
             
-            for _ in range(10):
-                self.pipeline.wait_for_frames()
-            print("✓ RealSense D435i connected - PRIMARY SENSOR")
+            # Use detected configuration first, then fallbacks
+            detected_config = REALSENSE_CONFIG
+            configs_to_try = [
+                # Use detected configuration first
+                (rs.stream.depth, detected_config['width'], detected_config['height'], rs.format.z16, detected_config['fps']),
+                # Fallback configurations
+                (rs.stream.depth, 424, 240, rs.format.z16, 15),
+                (rs.stream.depth, 320, 240, rs.format.z16, 15),
+                (rs.stream.depth, 640, 480, rs.format.z16, 6),
+            ]
+            
+            connected = False
+            for i, (stream, width, height, format, fps) in enumerate(configs_to_try):
+                try:
+                    print(f"  [CONFIG] Trying {width}x{height} @ {fps}fps...")
+                    config = rs.config()
+                    config.enable_stream(stream, width, height, format, fps)
+                    self.pipeline.start(config)
+                    
+                    # Wait for camera to stabilize
+                    print("  [INIT] Stabilizing camera...")
+                    time.sleep(2)
+                    
+                    # Test frame capture with multiple attempts
+                    print("  [TEST] Testing frame capture...")
+                    for attempt in range(10):
+                        try:
+                            frames = self.pipeline.wait_for_frames(timeout_ms=2000)
+                            depth_frame = frames.get_depth_frame()
+                            if depth_frame:
+                                print(f"[OK] RealSense D435i connected - {width}x{height} @ {fps}fps")
+                                return True
+                        except Exception as e:
+                            if attempt < 9:
+                                print(f"    [RETRY] Frame attempt {attempt+1}/10...")
+                                time.sleep(0.5)
+                            continue
+                    
+                    # If we get here, this config didn't work
+                    print(f"  [FAILED] Config {i+1} didn't work, trying next...")
+                    self.pipeline.stop()
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    print(f"  [ERROR] Config {i+1} failed: {e}")
+                    if self.pipeline:
+                        try:
+                            self.pipeline.stop()
+                        except:
+                            pass
+                    time.sleep(1)
+                    continue
+            
+            print("[ERROR] All RealSense configurations failed")
+            self.pipeline = None
+            return False
+            
+        except Exception as e:
+            print(f"[ERROR] RealSense connection failed: {e}")
+            self.pipeline = None
+            return False
+    
+    def reset_realsense(self):
+        """Reset RealSense camera by stopping and restarting"""
+        try:
+            if self.pipeline:
+                print("  [RESET] Stopping RealSense pipeline...")
+                self.pipeline.stop()
+                time.sleep(2)
+                self.pipeline = None
+            print("  [RESET] RealSense reset complete")
             return True
         except Exception as e:
-            print(f"✗ RealSense failed: {e}")
-            self.pipeline = None
+            print(f"  [ERROR] RealSense reset failed: {e}")
             return False
             
     def connect_pixhawk(self):
@@ -372,10 +447,15 @@ class ComboProximityBridge:
         
         # Clean status with error info
         error_info = f" E:{self.stats['lidar_errors']}" if self.stats['lidar_errors'] > 0 else ""
-        print(f"\r[{uptime:3d}s] "
-              f"Forward(RS):{rs_min/100:.1f}m [OK] | "
-              f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
-              f"TX:{self.stats['messages_sent']:5d}", end='', flush=True)
+        if self.pipeline:
+            print(f"\r[{uptime:3d}s] "
+                  f"Forward(RS):{rs_min/100:.1f}m [OK] | "
+                  f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
+                  f"TX:{self.stats['messages_sent']:5d}", end='', flush=True)
+        else:
+            print(f"\r[{uptime:3d}s] "
+                  f"LIDAR-ONLY:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
+                  f"TX:{self.stats['messages_sent']:5d}", end='', flush=True)
               
     def run(self):
         """Main execution"""
@@ -388,14 +468,30 @@ class ComboProximityBridge:
         
         pixhawk_ok = self.connect_pixhawk()
         lidar_ok = self.connect_lidar()
-        realsense_ok = self.connect_realsense() if REALSENSE_AVAILABLE else False
+        
+        # Try RealSense with retry logic
+        realsense_ok = False
+        if REALSENSE_AVAILABLE:
+            for attempt in range(self.max_realsense_retries):
+                print(f"\n[REALSENSE] Attempt {attempt + 1}/{self.max_realsense_retries}")
+                realsense_ok = self.connect_realsense()
+                if realsense_ok:
+                    break
+                else:
+                    if attempt < self.max_realsense_retries - 1:
+                        print(f"[RETRY] Waiting 3 seconds before retry...")
+                        self.reset_realsense()
+                        time.sleep(3)
+        else:
+            print("[ERROR] RealSense library not available")
         
         if not pixhawk_ok:
             print("[ERROR] Cannot continue without Pixhawk")
             return
             
         if not realsense_ok:
-            print("[ERROR] RealSense required for forward detection")
+            print("[ERROR] RealSense required for sensor fusion")
+            print("  [NOTE] Both RealSense and LIDAR are needed for optimal performance")
             return
             
         if lidar_ok:
@@ -411,8 +507,12 @@ class ComboProximityBridge:
             print("[OK] RealSense thread started")
             
         print("\n[OK] Proximity bridge operational - PRODUCTION MODE")
-        print("  • PRIMARY: RealSense (forward 135° arc)")
-        print("  • SECONDARY: LiDAR (side/rear, best effort)")
+        if realsense_ok:
+            print("  • PRIMARY: RealSense (forward 135° arc)")
+            print("  • SECONDARY: LiDAR (side/rear, best effort)")
+        else:
+            print("  • PRIMARY: LiDAR (360° coverage)")
+            print("  • RealSense: Not available")
         print("  • Update: 10Hz to Mission Planner")
         print("  • Note: Buffer warnings suppressed\n")
         
