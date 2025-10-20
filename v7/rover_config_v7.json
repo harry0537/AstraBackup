@@ -1,0 +1,6 @@
+{
+  "dashboard_ip": "10.244.77.186",
+  "dashboard_port": 8081,
+  "mavlink_port": 14550,
+  "rover_ip": "127.0.1.1"
+}
