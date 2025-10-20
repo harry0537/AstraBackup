@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Project Astra NZ - Combo Proximity Bridge V7
+Project Astra NZ - Combo Proximity Bridge V6.5 FINAL
 Accepts rplidar library buffer limitations, focuses on RealSense reliability
-Component 195 - Production Ready - Clean Version
+Component 195 - Production Ready
 """
 
 import time
@@ -20,33 +20,8 @@ try:
 except ImportError:
     REALSENSE_AVAILABLE = False
 
-# Hardware configuration - Auto-detect LIDAR port
-def find_lidar_port():
-    """Auto-detect LIDAR port"""
-    import glob
-    # Check common LIDAR ports in order of preference
-    candidates = ['/dev/ttyUSB1', '/dev/ttyUSB0', '/dev/ttyACM0', '/dev/ttyACM1']
-    
-    for port in candidates:
-        if os.path.exists(port):
-            try:
-                # Quick test to see if it's a LIDAR
-                test_lidar = RPLidar(port, baudrate=1000000, timeout=0.5)
-                info = test_lidar.get_info()
-                test_lidar.disconnect()
-                print(f"[AUTO-DETECT] Found LIDAR at {port}: {info['model']}")
-                return port
-            except:
-                continue
-    
-    # Fallback to first available USB port
-    usb_ports = glob.glob('/dev/ttyUSB*')
-    if usb_ports:
-        return usb_ports[0]
-    
-    return '/dev/ttyUSB1'  # Default fallback
-
-LIDAR_PORT = find_lidar_port()
+# Hardware configuration
+LIDAR_PORT = '/dev/ttyUSB0'
 PIXHAWK_PORT = '/dev/ttyACM0'
 PIXHAWK_BAUD = 57600
 COMPONENT_ID = 195
@@ -75,50 +50,27 @@ class ComboProximityBridge:
             'lidar_success': 0,
             'realsense_success': 0,
             'messages_sent': 0,
-            'start_time': time.time(),
-            'lidar_errors': 0,
-            'last_lidar_error': None
+            'start_time': time.time()
         }
         
         # Suppress rplidar buffer warnings
         self.suppress_warnings = True
-        self.lidar_retry_count = 0
-        self.max_lidar_retries = 5
 
     def connect_lidar(self):
-        """Connect to RPLidar S3 - IMPROVED with retry logic"""
-        for attempt in range(self.max_lidar_retries):
-            try:
-                print(f"Connecting RPLidar at {LIDAR_PORT} (attempt {attempt + 1}/{self.max_lidar_retries})")
-                self.lidar = RPLidar(LIDAR_PORT, baudrate=1000000, timeout=2)
-                
-                info = self.lidar.get_info()
-                health = self.lidar.get_health()
-                print(f"[OK] RPLidar S3: Model {info['model']}, Health {health[0]}")
-                print("  [NOTE] Buffer warnings are from rplidar library (known issue)")
-                self.lidar_retry_count = 0  # Reset on success
-                return True
-                
-            except Exception as e:
-                self.stats['lidar_errors'] += 1
-                self.stats['last_lidar_error'] = str(e)
-                print(f"[ERROR] RPLidar attempt {attempt + 1} failed: {e}")
-                
-                if self.lidar:
-                    try:
-                        self.lidar.disconnect()
-                    except:
-                        pass
-                    self.lidar = None
-                
-                if attempt < self.max_lidar_retries - 1:
-                    print(f"  [RETRY] Waiting 2 seconds before retry...")
-                    time.sleep(2)
-                else:
-                    print(f"  [FAILED] All {self.max_lidar_retries} attempts failed")
-                    return False
-        
-        return False
+        """Connect to RPLidar S3 - BEST EFFORT"""
+        try:
+            print(f"Connecting RPLidar at {LIDAR_PORT}")
+            self.lidar = RPLidar(LIDAR_PORT, baudrate=1000000, timeout=1)
+            
+            info = self.lidar.get_info()
+            health = self.lidar.get_health()
+            print(f"✓ RPLidar S3: Model {info['model']}, Health {health[0]}")
+            print("  ⚠ Note: Buffer warnings are from rplidar library (known issue)")
+            return True
+            
+        except Exception as e:
+            print(f"✗ RPLidar failed: {e}")
+            return False
             
     def connect_realsense(self):
         """Connect to Intel RealSense D435i - PRIMARY SENSOR"""
@@ -228,30 +180,13 @@ class ComboProximityBridge:
                 
                 time.sleep(0.5)
                 
-            except Exception as e:
-                self.stats['lidar_errors'] += 1
-                self.stats['last_lidar_error'] = str(e)
-                print(f"[LIDAR] Thread error: {e}")
-                
+            except Exception:
                 try:
                     self.lidar.stop()
                     self.lidar.stop_motor()
                 except:
                     pass
-                
-                # Try to reconnect if too many errors
-                if self.stats['lidar_errors'] > 10:
-                    print("[LIDAR] Too many errors, attempting reconnection...")
-                    try:
-                        self.lidar.disconnect()
-                    except:
-                        pass
-                    self.lidar = None
-                    time.sleep(5)
-                    if self.connect_lidar():
-                        self.stats['lidar_errors'] = 0
-                else:
-                    time.sleep(1)
+                time.sleep(1)
                     
     def realsense_thread(self):
         """RealSense - PRIMARY sensor for forward detection"""
@@ -351,13 +286,11 @@ class ComboProximityBridge:
                 'min_cm': int(min(fused)),
                 'lidar_cm': lidar,
                 'realsense_cm': rsc,
-                'messages_sent': self.stats['messages_sent'],
-                'lidar_errors': self.stats['lidar_errors'],
-                'last_lidar_error': self.stats['last_lidar_error']
+                'messages_sent': self.stats['messages_sent']
             }
-            with open('/tmp/proximity_v7.json.tmp', 'w') as f:
+            with open('/tmp/proximity_v6.json.tmp', 'w') as f:
                 json.dump(payload, f)
-            os.replace('/tmp/proximity_v7.json.tmp', '/tmp/proximity_v7.json')
+            os.replace('/tmp/proximity_v6.json.tmp', '/tmp/proximity_v6.json')
         except:
             pass
         
@@ -370,20 +303,16 @@ class ComboProximityBridge:
             lidar_min = min(self.lidar_sectors)
             rs_min = min(self.realsense_sectors)
         
-        # Clean status with error info
-        error_info = f" E:{self.stats['lidar_errors']}" if self.stats['lidar_errors'] > 0 else ""
+        # Clean status without buffer warnings
         print(f"\r[{uptime:3d}s] "
-              f"Forward(RS):{rs_min/100:.1f}m [OK] | "
-              f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
+              f"Forward(RS):{rs_min/100:.1f}m ✓ | "
+              f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m | "
               f"TX:{self.stats['messages_sent']:5d}", end='', flush=True)
               
     def run(self):
         """Main execution"""
         print("=" * 60)
-        print("Combo Proximity Bridge V7 - Production (Improved)")
-        print("=" * 60)
-        print(f"[CONFIG] LIDAR Port: {LIDAR_PORT}")
-        print(f"[CONFIG] Pixhawk Port: {PIXHAWK_PORT}")
+        print("Combo Proximity Bridge V6.5 FINAL - Production")
         print("=" * 60)
         
         pixhawk_ok = self.connect_pixhawk()
@@ -391,26 +320,22 @@ class ComboProximityBridge:
         realsense_ok = self.connect_realsense() if REALSENSE_AVAILABLE else False
         
         if not pixhawk_ok:
-            print("[ERROR] Cannot continue without Pixhawk")
+            print("✗ Cannot continue without Pixhawk")
             return
             
         if not realsense_ok:
-            print("[ERROR] RealSense required for forward detection")
+            print("✗ RealSense required for forward detection")
             return
             
         if lidar_ok:
             t = threading.Thread(target=self.lidar_thread, daemon=True)
             t.start()
-            print("[OK] LIDAR thread started")
-        else:
-            print("[WARNING] LIDAR not available - using RealSense only")
             
         if realsense_ok:
             t = threading.Thread(target=self.realsense_thread, daemon=True)
             t.start()
-            print("[OK] RealSense thread started")
             
-        print("\n[OK] Proximity bridge operational - PRODUCTION MODE")
+        print("\n✓ Proximity bridge operational - PRODUCTION MODE")
         print("  • PRIMARY: RealSense (forward 135° arc)")
         print("  • SECONDARY: LiDAR (side/rear, best effort)")
         print("  • Update: 10Hz to Mission Planner")
@@ -432,7 +357,7 @@ class ComboProximityBridge:
                 time.sleep(0.01)
                 
         except KeyboardInterrupt:
-            print("\n\n[SHUTDOWN] Initiated...")
+            print("\n\nShutdown initiated...")
             
         finally:
             self.running = False
@@ -455,7 +380,7 @@ class ComboProximityBridge:
             if self.suppress_warnings:
                 sys.stderr = sys.__stderr__
                     
-            print("[OK] Proximity bridge stopped")
+            print("✓ Proximity bridge stopped")
 
 if __name__ == "__main__":
     bridge = ComboProximityBridge()
