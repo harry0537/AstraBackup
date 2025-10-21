@@ -1,0 +1,14 @@
+{
+  "dashboard_ip": "0.0.0.0",
+  "dashboard_port": 8081,
+  "mavlink_port": 14550,
+  "rover_ip": "172.25.11.86",
+  "lidar_port": "/dev/ttyUSB1",
+  "pixhawk_port": "/dev/ttyACM0",
+  "realsense_available": false,
+  "realsense_config": {
+    "width": 424,
+    "height": 240,
+    "fps": 15
+  }
+}
