@@ -86,6 +86,7 @@ class ComboProximityBridge:
         # FIX BUG #8: Track stderr state for proper restoration
         self.original_stderr = sys.stderr
         self.stderr_redirected = False
+        self.devnull_file = None  # FIX BUG #15: Store devnull handle to prevent FD leak
 
         # Suppress rplidar buffer warnings
         self.suppress_warnings = True
@@ -251,11 +252,12 @@ class ComboProximityBridge:
     def lidar_thread(self):
         """LiDAR thread - BEST EFFORT with graceful failure"""
 
-        # FIX BUG #8: Track stderr redirection state properly
+        # FIX BUG #8/#15: Open devnull once and reuse to prevent FD leak
         # Redirect stderr to suppress library warnings if requested
         if self.suppress_warnings:
             try:
-                sys.stderr = open(os.devnull, 'w')
+                self.devnull_file = open(os.devnull, 'w')
+                sys.stderr = self.devnull_file
                 self.stderr_redirected = True
             except:
                 pass
@@ -317,12 +319,12 @@ class ComboProximityBridge:
                     self.stats['lidar_errors'] += 1
                     self.stats['last_lidar_error'] = str(e)
 
-                    # Restore stderr temporarily for error reporting
+                    # FIX BUG #15: Restore stderr temporarily for error reporting, reuse devnull handle
                     if self.stderr_redirected:
                         sys.stderr = self.original_stderr
                     print(f"[LIDAR] Thread error: {e}")
                     if self.stderr_redirected:
-                        sys.stderr = open(os.devnull, 'w')
+                        sys.stderr = self.devnull_file  # Reuse existing handle
 
                     try:
                         self.lidar.stop()
@@ -336,7 +338,7 @@ class ComboProximityBridge:
                             sys.stderr = self.original_stderr
                         print("[LIDAR] Too many errors, attempting reconnection...")
                         if self.stderr_redirected:
-                            sys.stderr = open(os.devnull, 'w')
+                            sys.stderr = self.devnull_file  # Reuse existing handle
 
                         try:
                             self.lidar.disconnect()
@@ -350,10 +352,16 @@ class ComboProximityBridge:
                         time.sleep(1)
 
         finally:
-            # FIX BUG #8: Always restore stderr when thread exits
+            # FIX BUG #8/#15: Always restore stderr and close devnull handle
             if self.stderr_redirected:
                 sys.stderr = self.original_stderr
                 self.stderr_redirected = False
+            if self.devnull_file:
+                try:
+                    self.devnull_file.close()
+                except:
+                    pass
+                self.devnull_file = None
 
     def realsense_thread(self):
         """RealSense - PRIMARY sensor for forward detection"""
@@ -585,10 +593,16 @@ class ComboProximityBridge:
                 except:
                     pass
 
-            # FIX BUG #8: Restore stderr on shutdown
+            # FIX BUG #8/#15: Restore stderr and close devnull handle on shutdown
             if self.stderr_redirected:
                 sys.stderr = self.original_stderr
                 self.stderr_redirected = False
+            if self.devnull_file:
+                try:
+                    self.devnull_file.close()
+                except:
+                    pass
+                self.devnull_file = None
 
             print("[OK] Proximity bridge stopped")
 
