@@ -97,23 +97,45 @@ class SimpleCropMonitor:
             return False
 
     def capture_image(self):
-        """Capture and save single image"""
+        """Capture and save single image with robust error handling"""
         if not self.pipeline:
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No pipeline available", end='')
             return False
 
         try:
-            # Capture frame
-            frames = self.pipeline.wait_for_frames(timeout_ms=1000)
-            color_frame = frames.get_color_frame()
+            # Capture frame with retry logic
+            frames = None
+            for attempt in range(3):
+                try:
+                    frames = self.pipeline.wait_for_frames(timeout_ms=2000)
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Frame capture attempt {attempt+1} failed: {e}, retrying...", end='')
+                        time.sleep(0.5)
+                    else:
+                        raise e
 
+            if not frames:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No frames received", end='')
+                return False
+
+            color_frame = frames.get_color_frame()
             if not color_frame:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No color frame", end='')
                 return False
 
             # Convert to numpy array
             image = np.asanyarray(color_frame.get_data())
+            if image is None or image.size == 0:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Invalid image data", end='')
+                return False
 
             # Save image with optimized compression for faster transmission
-            cv2.imwrite(IMAGE_OUTPUT, image, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            success = cv2.imwrite(IMAGE_OUTPUT, image, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if not success:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image", end='')
+                return False
 
             # Update status
             self.capture_count += 1
@@ -126,14 +148,32 @@ class SimpleCropMonitor:
                 'image_size': os.path.getsize(IMAGE_OUTPUT) if os.path.exists(IMAGE_OUTPUT) else 0
             }
 
-            with open(STATUS_FILE, 'w') as f:
-                json.dump(status, f)
+            # Write status file with error handling
+            try:
+                with open(STATUS_FILE, 'w') as f:
+                    json.dump(status, f)
+            except Exception as e:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Status file write failed: {e}", end='')
 
-            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count}", end='')
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count} ({os.path.getsize(IMAGE_OUTPUT)} bytes)", end='', flush=True)
             return True
 
         except Exception as e:
             print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Capture failed: {e}", end='')
+            # Try to reconnect camera if it's a pipeline error
+            if "pipeline" in str(e).lower() or "device" in str(e).lower():
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Attempting camera reconnection...", end='')
+                try:
+                    if self.pipeline:
+                        self.pipeline.stop()
+                    self.pipeline = None
+                    time.sleep(2)
+                    if self.connect_camera():
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Camera reconnected", end='')
+                    else:
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Camera reconnection failed", end='')
+                except:
+                    pass
             return False
 
     def run(self):
@@ -159,12 +199,37 @@ class SimpleCropMonitor:
         self.capture_image()
 
         try:
+            consecutive_failures = 0
+            max_failures = 5
+            
             while self.running:
                 current_time = time.time()
 
                 # Check if it's time for next capture
                 if current_time - self.last_capture_time >= CAPTURE_INTERVAL:
-                    self.capture_image()
+                    success = self.capture_image()
+                    
+                    if success:
+                        consecutive_failures = 0
+                    else:
+                        consecutive_failures += 1
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Consecutive failures: {consecutive_failures}/{max_failures}", end='')
+                        
+                        # If too many failures, try to reconnect camera
+                        if consecutive_failures >= max_failures:
+                            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Too many failures, attempting camera reconnection...", end='')
+                            try:
+                                if self.pipeline:
+                                    self.pipeline.stop()
+                                self.pipeline = None
+                                time.sleep(3)
+                                if self.connect_camera():
+                                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Camera reconnected", end='')
+                                    consecutive_failures = 0
+                                else:
+                                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Camera reconnection failed", end='')
+                            except Exception as e:
+                                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Reconnection error: {e}", end='')
 
                 time.sleep(1)
 

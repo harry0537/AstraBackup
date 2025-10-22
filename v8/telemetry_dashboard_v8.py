@@ -375,16 +375,22 @@ DASHBOARD_HTML = '''
         }
 
         let lastCropCaptureCount = 0;
+        let lastImageUpdate = 0;
         
         function updateCropMonitor(cropData) {
             const statusElement = document.getElementById('crop-status');
             const imageElement = document.getElementById('crop-image');
+            const currentTime = new Date().getTime();
             
-            // Only update image if capture count changed (new image available)
-            if (cropData.capture_count !== lastCropCaptureCount) {
+            // Update image more frequently - every 3 seconds or when capture count changes
+            const shouldUpdateImage = (cropData.capture_count !== lastCropCaptureCount) || 
+                                    (currentTime - lastImageUpdate > 3000);
+            
+            if (shouldUpdateImage) {
                 const timestamp = new Date().getTime();
                 imageElement.src = `/api/crop/image?t=${timestamp}`;
                 lastCropCaptureCount = cropData.capture_count;
+                lastImageUpdate = currentTime;
             }
             
             // Update status with better status colors
@@ -399,6 +405,7 @@ DASHBOARD_HTML = '''
                 <div>Size: ${Math.round(cropData.image_size / 1024)}KB</div>
                 <div>Age: ${cropData.image_age || 0}s</div>
                 <div>Refresh: Every 5s</div>
+                <div>Updated: ${new Date().toLocaleTimeString()}</div>
             `;
             statusElement.innerHTML = statusHtml;
         }
@@ -434,6 +441,16 @@ DASHBOARD_HTML = '''
 
         // Update every 1 second for faster crop image refresh
         setInterval(updateDashboard, 1000);
+        
+        // Force rover vision image update every 5 seconds
+        setInterval(function() {
+            const imageElement = document.getElementById('crop-image');
+            if (imageElement) {
+                const timestamp = new Date().getTime();
+                imageElement.src = `/api/crop/image?t=${timestamp}`;
+                console.log('Rover vision image refreshed at', new Date().toLocaleTimeString());
+            }
+        }, 5000);
     </script>
 </body>
 </html>
