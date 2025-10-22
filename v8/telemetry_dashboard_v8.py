@@ -152,6 +152,22 @@ DASHBOARD_HTML = '''
         .safe { color: #00ff00; }
         .warning { color: #ffff00; }
         .danger { color: #ff0000; }
+        .crop-image-container {
+            text-align: center;
+            margin-top: 10px;
+        }
+        .crop-image-container img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,255,0,0.3);
+        }
+        .crop-status {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #888;
+        }
     </style>
 </head>
 <body>
@@ -189,6 +205,16 @@ DASHBOARD_HTML = '''
             <h2>STATISTICS</h2>
             <div class="status-grid" id="statistics">
                 <!-- Populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>CROP MONITOR</h2>
+            <div class="crop-image-container">
+                <img id="crop-image" src="/api/crop/image" alt="Latest crop image" style="max-width: 100%; height: auto; border: 1px solid #00ff00;">
+                <div class="crop-status" id="crop-status">
+                    <!-- Populated by JavaScript -->
+                </div>
             </div>
         </div>
     </div>
@@ -325,6 +351,30 @@ DASHBOARD_HTML = '''
             element.innerHTML = html;
         }
 
+        let lastCropCaptureCount = 0;
+        
+        function updateCropMonitor(cropData) {
+            const statusElement = document.getElementById('crop-status');
+            const imageElement = document.getElementById('crop-image');
+            
+            // Only update image if capture count changed (new image available)
+            if (cropData.capture_count !== lastCropCaptureCount) {
+                const timestamp = new Date().getTime();
+                imageElement.src = `/api/crop/image?t=${timestamp}`;
+                lastCropCaptureCount = cropData.capture_count;
+            }
+            
+            // Update status
+            let statusHtml = `
+                <div>Status: <span class="${cropData.status === 'RUNNING' ? 'status-ok' : 'status-error'}">${cropData.status}</span></div>
+                <div>Captures: ${cropData.capture_count}</div>
+                <div>Last: ${cropData.last_capture}</div>
+                <div>Size: ${Math.round(cropData.image_size / 1024)}KB</div>
+                <div>Refresh: Every 5s</div>
+            `;
+            statusElement.innerHTML = statusHtml;
+        }
+
         async function updateDashboard() {
             try {
                 const response = await fetch('/api/telemetry');
@@ -337,6 +387,11 @@ DASHBOARD_HTML = '''
                 updateStatus('system-status', data.system_status);
                 updateStatus('sensor-health', data.sensor_health);
                 updateStatus('statistics', data.statistics);
+                
+                // Update crop monitor
+                if (data.crop_monitor) {
+                    updateCropMonitor(data.crop_monitor);
+                }
 
                 // Update timestamp
                 document.getElementById('timestamp').textContent =
@@ -349,8 +404,8 @@ DASHBOARD_HTML = '''
         // Initial draw
         drawRadar([2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500]);
 
-        // Update every 500ms
-        setInterval(updateDashboard, 500);
+        // Update every 1 second for faster crop image refresh
+        setInterval(updateDashboard, 1000);
     </script>
 </body>
 </html>
@@ -372,6 +427,40 @@ def update_proximity(sector, distance):
         telemetry_data['proximity'][sector] = distance
         telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
     return jsonify({'status': 'ok'})
+
+@app.route('/api/crop/image')
+def get_crop_image():
+    """Serve the latest crop monitor image"""
+    from flask import send_file
+    import os
+    
+    image_path = "/tmp/crop_latest.jpg"
+    if os.path.exists(image_path):
+        return send_file(image_path, mimetype='image/jpeg')
+    else:
+        # Return a placeholder image or 404
+        return "No crop image available", 404
+
+@app.route('/api/crop/status')
+def get_crop_status():
+    """Get crop monitor status"""
+    import os
+    import json
+    
+    status_file = "/tmp/crop_monitor_v8.json"
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                return jsonify(json.load(f))
+        except:
+            pass
+    
+    return jsonify({
+        'timestamp': datetime.now().isoformat(),
+        'capture_count': 0,
+        'image_path': '/tmp/crop_latest.jpg',
+        'image_size': 0
+    })
 
 def read_telemetry_file():
     """Read telemetry from shared file (if proximity bridge writes to file)"""
@@ -411,6 +500,33 @@ def read_telemetry_file():
                 if 'timestamp' in data:
                     age = time.time() - data['timestamp']
                     telemetry_data['statistics']['uptime'] = int(age)
+                
+                # Update crop monitor status
+                try:
+                    crop_status_file = "/tmp/crop_monitor_v8.json"
+                    if os.path.exists(crop_status_file):
+                        with open(crop_status_file, 'r') as f:
+                            crop_data = json.load(f)
+                            telemetry_data['crop_monitor'] = {
+                                'status': 'RUNNING',
+                                'capture_count': crop_data.get('capture_count', 0),
+                                'last_capture': crop_data.get('timestamp', 'Unknown'),
+                                'image_size': crop_data.get('image_size', 0)
+                            }
+                    else:
+                        telemetry_data['crop_monitor'] = {
+                            'status': 'STOPPED',
+                            'capture_count': 0,
+                            'last_capture': 'Never',
+                            'image_size': 0
+                        }
+                except Exception as e:
+                    telemetry_data['crop_monitor'] = {
+                        'status': 'ERROR',
+                        'capture_count': 0,
+                        'last_capture': 'Error',
+                        'image_size': 0
+                    }
                     
         except FileNotFoundError:
             # File doesn't exist yet - expected on startup

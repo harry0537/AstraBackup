@@ -20,7 +20,7 @@ except ImportError:
 
 # Configuration
 COMPONENT_ID = 198
-CAPTURE_INTERVAL = 60  # 1 minute
+CAPTURE_INTERVAL = 5  # 5 seconds
 IMAGE_OUTPUT = "/tmp/crop_latest.jpg"
 STATUS_FILE = "/tmp/crop_monitor_v8.json"
 
@@ -112,8 +112,8 @@ class SimpleCropMonitor:
             # Convert to numpy array
             image = np.asanyarray(color_frame.get_data())
 
-            # Save image
-            cv2.imwrite(IMAGE_OUTPUT, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            # Save image with optimized compression for faster transmission
+            cv2.imwrite(IMAGE_OUTPUT, image, [cv2.IMWRITE_JPEG_QUALITY, 75])
 
             # Update status
             self.capture_count += 1
@@ -150,8 +150,9 @@ class SimpleCropMonitor:
             return
 
         print("\n✓ Crop monitor operational")
-        print("  • Capturing 1 image per minute")
+        print("  • Capturing 1 image every 5 seconds")
         print("  • Images saved to /tmp for relay")
+        print("  • High-frequency capture for dashboard feed")
         print()
 
         # Initial capture
