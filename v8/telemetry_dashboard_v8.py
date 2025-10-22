@@ -95,6 +95,26 @@ DASHBOARD_HTML = '''
             grid-column: 1 / -1;
             margin-top: 20px;
         }
+        .vision-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .proximity-panel {
+            grid-column: 1;
+        }
+        .rover-vision-panel {
+            grid-column: 2;
+        }
+        .proximity-panel .radar-container {
+            width: 100%;
+            height: 400px;
+        }
+        .proximity-panel .radar {
+            width: 100%;
+            height: 100%;
+        }
         .panel {
             background: #1a1a1a;
             border: 1px solid #00ff00;
@@ -199,16 +219,6 @@ DASHBOARD_HTML = '''
 
     <div class="container">
         <div class="panel">
-            <h2>PROXIMITY RADAR</h2>
-            <div class="radar-container">
-                <canvas id="radar" class="radar"></canvas>
-            </div>
-            <div class="proximity-values" id="proximity-values">
-                <!-- Populated by JavaScript -->
-            </div>
-        </div>
-
-        <div class="panel">
             <h2>SYSTEM STATUS</h2>
             <div class="status-grid" id="system-status">
                 <!-- Populated by JavaScript -->
@@ -230,13 +240,27 @@ DASHBOARD_HTML = '''
         </div>
     </div>
 
-    <div class="rover-vision-container">
-        <div class="panel">
-            <h2>REAL-TIME ROVER VISION</h2>
-            <div class="crop-image-container">
-                <img id="crop-image" src="/api/crop/image" alt="Latest crop image" style="max-width: 100%; height: auto; border: 1px solid #00ff00;">
-                <div class="crop-status" id="crop-status">
+    <div class="vision-row">
+        <div class="proximity-panel">
+            <div class="panel">
+                <h2>PROXIMITY RADAR</h2>
+                <div class="radar-container">
+                    <canvas id="radar" class="radar"></canvas>
+                </div>
+                <div class="proximity-values" id="proximity-values">
                     <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <div class="rover-vision-panel">
+            <div class="panel">
+                <h2>REAL-TIME ROVER VISION</h2>
+                <div class="crop-image-container">
+                    <img id="crop-image" src="/api/crop/image" alt="Latest crop image" style="max-width: 100%; height: auto; border: 1px solid #00ff00;">
+                    <div class="crop-status" id="crop-status">
+                        <!-- Populated by JavaScript -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -245,11 +269,24 @@ DASHBOARD_HTML = '''
     <script>
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
-        canvas.width = 280;
-        canvas.height = 280;
+        
+        // Make radar bigger to fit the larger container
+        function resizeRadar() {
+            const container = canvas.parentElement;
+            const size = Math.min(container.clientWidth - 40, container.clientHeight - 100);
+            canvas.width = size;
+            canvas.height = size;
+        }
+        
+        // Initial resize
+        resizeRadar();
+        
+        // Resize on window resize
+        window.addEventListener('resize', resizeRadar);
+        
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
-        const maxRadius = 120;
+        const maxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
 
         // Sector angles (45° each, starting from front)
         const sectorAngles = [
@@ -261,6 +298,11 @@ DASHBOARD_HTML = '''
         ];
 
         function drawRadar(distances) {
+            // Update center and radius for current canvas size
+            const currentCenterX = canvas.width / 2;
+            const currentCenterY = canvas.height / 2;
+            const currentMaxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw grid circles
@@ -268,23 +310,23 @@ DASHBOARD_HTML = '''
             ctx.lineWidth = 1;
             for (let r = 0.25; r <= 1; r += 0.25) {
                 ctx.beginPath();
-                ctx.arc(centerX, centerY, maxRadius * r, 0, Math.PI * 2);
+                ctx.arc(currentCenterX, currentCenterY, currentMaxRadius * r, 0, Math.PI * 2);
                 ctx.stroke();
 
                 // Distance labels
                 ctx.fillStyle = '#004400';
                 ctx.font = '10px monospace';
-                ctx.fillText(`${Math.round(r * 25)}m`, centerX + 5, centerY - maxRadius * r + 10);
+                ctx.fillText(`${Math.round(r * 25)}m`, currentCenterX + 5, currentCenterY - currentMaxRadius * r + 10);
             }
 
             // Draw sector lines
             for (let angle of sectorAngles) {
                 const rad = (angle - 90) * Math.PI / 180;
                 ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
+                ctx.moveTo(currentCenterX, currentCenterY);
                 ctx.lineTo(
-                    centerX + maxRadius * Math.cos(rad),
-                    centerY + maxRadius * Math.sin(rad)
+                    currentCenterX + currentMaxRadius * Math.cos(rad),
+                    currentCenterY + currentMaxRadius * Math.sin(rad)
                 );
                 ctx.stroke();
             }
@@ -293,7 +335,7 @@ DASHBOARD_HTML = '''
             for (let i = 0; i < 8; i++) {
                 const distance = distances[i] / 100; // Convert to meters
                 const normalizedDist = Math.min(distance / 25, 1); // Normalize to 25m max
-                const pixelDist = normalizedDist * maxRadius;
+                const pixelDist = normalizedDist * currentMaxRadius;
 
                 // Calculate sector center angle
                 const startAngle = (sectorAngles[i] - 90) * Math.PI / 180;
@@ -313,14 +355,14 @@ DASHBOARD_HTML = '''
                 // Draw sector arc
                 ctx.fillStyle = color;
                 ctx.beginPath();
-                ctx.arc(centerX, centerY, pixelDist, startAngle, endAngle);
-                ctx.lineTo(centerX, centerY);
+                ctx.arc(currentCenterX, currentCenterY, pixelDist, startAngle, endAngle);
+                ctx.lineTo(currentCenterX, currentCenterY);
                 ctx.fill();
 
                 // Draw distance text
                 if (distance < 25) {
-                    const textX = centerX + (pixelDist + 15) * Math.cos(centerAngle);
-                    const textY = centerY + (pixelDist + 15) * Math.sin(centerAngle);
+                    const textX = currentCenterX + (pixelDist + 15) * Math.cos(centerAngle);
+                    const textY = currentCenterY + (pixelDist + 15) * Math.sin(centerAngle);
                     ctx.fillStyle = '#00ff00';
                     ctx.font = 'bold 12px monospace';
                     ctx.fillText(`${distance.toFixed(1)}m`, textX - 15, textY + 3);
@@ -330,7 +372,7 @@ DASHBOARD_HTML = '''
             // Draw center point
             ctx.fillStyle = '#00ff00';
             ctx.beginPath();
-            ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+            ctx.arc(currentCenterX, currentCenterY, 3, 0, Math.PI * 2);
             ctx.fill();
 
             // Update proximity values panel
