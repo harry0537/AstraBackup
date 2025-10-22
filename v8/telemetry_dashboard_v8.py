@@ -91,6 +91,10 @@ DASHBOARD_HTML = '''
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
         }
+        .rover-vision-container {
+            grid-column: 1 / -1;
+            margin-top: 20px;
+        }
         .panel {
             background: #1a1a1a;
             border: 1px solid #00ff00;
@@ -159,14 +163,31 @@ DASHBOARD_HTML = '''
         .crop-image-container img {
             max-width: 100%;
             height: auto;
-            border: 1px solid #00ff00;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0,255,0,0.3);
+            max-height: 500px;
+            border: 2px solid #00ff00;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0,255,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .crop-image-container img:hover {
+            box-shadow: 0 0 30px rgba(0,255,0,0.8);
+            transform: scale(1.02);
         }
         .crop-status {
-            margin-top: 10px;
-            font-size: 12px;
+            margin-top: 15px;
+            font-size: 14px;
             color: #888;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .rover-vision-container .panel {
+            padding: 25px;
+        }
+        .rover-vision-container h2 {
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -207,9 +228,11 @@ DASHBOARD_HTML = '''
                 <!-- Populated by JavaScript -->
             </div>
         </div>
+    </div>
 
+    <div class="rover-vision-container">
         <div class="panel">
-            <h2>CROP MONITOR</h2>
+            <h2>REAL-TIME ROVER VISION</h2>
             <div class="crop-image-container">
                 <img id="crop-image" src="/api/crop/image" alt="Latest crop image" style="max-width: 100%; height: auto; border: 1px solid #00ff00;">
                 <div class="crop-status" id="crop-status">
@@ -364,12 +387,17 @@ DASHBOARD_HTML = '''
                 lastCropCaptureCount = cropData.capture_count;
             }
             
-            // Update status
+            // Update status with better status colors
+            let statusClass = 'status-ok';
+            if (cropData.status === 'WARNING') statusClass = 'status-warning';
+            if (cropData.status === 'STOPPED' || cropData.status === 'ERROR') statusClass = 'status-error';
+            
             let statusHtml = `
-                <div>Status: <span class="${cropData.status === 'RUNNING' ? 'status-ok' : 'status-error'}">${cropData.status}</span></div>
+                <div>Status: <span class="${statusClass}">${cropData.status}</span></div>
                 <div>Captures: ${cropData.capture_count}</div>
                 <div>Last: ${cropData.last_capture}</div>
                 <div>Size: ${Math.round(cropData.image_size / 1024)}KB</div>
+                <div>Age: ${cropData.image_age || 0}s</div>
                 <div>Refresh: Every 5s</div>
             `;
             statusElement.innerHTML = statusHtml;
@@ -431,15 +459,45 @@ def update_proximity(sector, distance):
 @app.route('/api/crop/image')
 def get_crop_image():
     """Serve the latest crop monitor image"""
-    from flask import send_file
+    from flask import send_file, Response
     import os
+    import io
+    from PIL import Image, ImageDraw, ImageFont
     
     image_path = "/tmp/crop_latest.jpg"
     if os.path.exists(image_path):
         return send_file(image_path, mimetype='image/jpeg')
     else:
-        # Return a placeholder image or 404
-        return "No crop image available", 404
+        # Create a placeholder image
+        try:
+            # Create a 640x480 placeholder image
+            img = Image.new('RGB', (640, 480), color='black')
+            draw = ImageDraw.Draw(img)
+            
+            # Add text
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+            
+            text = "ROVER VISION\nNo Image Available"
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            x = (640 - text_width) // 2
+            y = (480 - text_height) // 2
+            
+            draw.text((x, y), text, fill='green', font=font)
+            
+            # Convert to bytes
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG')
+            img_byte_arr.seek(0)
+            
+            return Response(img_byte_arr.getvalue(), mimetype='image/jpeg')
+        except:
+            return "No crop image available", 404
 
 @app.route('/api/crop/status')
 def get_crop_status():
@@ -504,28 +562,47 @@ def read_telemetry_file():
                 # Update crop monitor status
                 try:
                     crop_status_file = "/tmp/crop_monitor_v8.json"
+                    crop_image_file = "/tmp/crop_latest.jpg"
+                    
                     if os.path.exists(crop_status_file):
                         with open(crop_status_file, 'r') as f:
                             crop_data = json.load(f)
+                            # Check if image file exists and is recent
+                            image_exists = os.path.exists(crop_image_file)
+                            image_age = 0
+                            if image_exists:
+                                image_age = time.time() - os.path.getmtime(crop_image_file)
+                            
+                            # Determine status based on data freshness
+                            if image_age < 10:  # Image is less than 10 seconds old
+                                status = 'RUNNING'
+                            elif image_age < 60:  # Image is less than 1 minute old
+                                status = 'WARNING'
+                            else:
+                                status = 'STOPPED'
+                                
                             telemetry_data['crop_monitor'] = {
-                                'status': 'RUNNING',
+                                'status': status,
                                 'capture_count': crop_data.get('capture_count', 0),
                                 'last_capture': crop_data.get('timestamp', 'Unknown'),
-                                'image_size': crop_data.get('image_size', 0)
+                                'image_size': crop_data.get('image_size', 0),
+                                'image_age': int(image_age)
                             }
                     else:
                         telemetry_data['crop_monitor'] = {
                             'status': 'STOPPED',
                             'capture_count': 0,
                             'last_capture': 'Never',
-                            'image_size': 0
+                            'image_size': 0,
+                            'image_age': 999
                         }
                 except Exception as e:
                     telemetry_data['crop_monitor'] = {
                         'status': 'ERROR',
                         'capture_count': 0,
-                        'last_capture': 'Error',
-                        'image_size': 0
+                        'last_capture': f'Error: {str(e)[:20]}',
+                        'image_size': 0,
+                        'image_age': 999
                     }
                     
         except FileNotFoundError:
