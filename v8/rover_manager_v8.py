@@ -53,7 +53,7 @@ class RoverManager:
     def load_config(self):
         """Load or create default configuration"""
         default = {
-            "dashboard_ip": "10.244.77.186",
+            "dashboard_ip": "0.0.0.0",
             "dashboard_port": 8081,
             "mavlink_port": 14550
         }
@@ -216,7 +216,8 @@ class RoverManager:
             except:
                 pass
 
-            print(f"\nDashboard: http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+            print(f"\nDashboard (Local): http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+            print(f"Dashboard (Network): http://{self.config.get('rover_ip', 'ROVER_IP')}:{self.config['dashboard_port']}")
             print("Press Ctrl+C for graceful shutdown")
 
             time.sleep(5)
@@ -253,7 +254,8 @@ class RoverManager:
         print("=" * 60)
         print("PROJECT ASTRA NZ - ROVER MANAGER V8")
         print("=" * 60)
-        print(f"Dashboard: http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+        print(f"Dashboard (Local): http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+        print(f"Dashboard (Network): http://{self.config.get('rover_ip', 'ROVER_IP')}:{self.config['dashboard_port']}")
         print("=" * 60)
 
         if not self.check_hardware():

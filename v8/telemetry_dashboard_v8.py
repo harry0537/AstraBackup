@@ -383,9 +383,47 @@ def read_telemetry_file():
                 telemetry_data['proximity'] = data.get('sectors_cm', [2500] * 8)
                 telemetry_data['statistics']['messages_sent'] = data.get('messages_sent', 0)
                 telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+                
+                # Update system status based on data availability
+                telemetry_data['system_status'] = {
+                    'proximity_bridge': 'RUNNING' if data.get('sectors_cm') else 'STOPPED',
+                    'data_relay': 'RUNNING',  # Assume running if dashboard is up
+                    'crop_monitor': 'RUNNING'  # Assume running if dashboard is up
+                }
+                
+                # Calculate success rates for sensors
+                lidar_attempts = data.get('lidar_attempts', 0)
+                lidar_success = data.get('lidar_success', 0)
+                if lidar_attempts > 0:
+                    telemetry_data['statistics']['rplidar_success_rate'] = int((lidar_success / lidar_attempts) * 100)
+                else:
+                    telemetry_data['statistics']['rplidar_success_rate'] = 0
+                
+                # Update sensor health based on error counts
+                lidar_errors = data.get('lidar_errors', 0)
+                telemetry_data['sensor_health'] = {
+                    'rplidar': 'Good' if lidar_errors == 0 else 'Warning' if lidar_errors < 5 else 'Error',
+                    'realsense': 'Connected' if data.get('realsense_cm') else 'Disconnected',
+                    'pixhawk': 'Connected'  # Assume connected if messages are being sent
+                }
+                
+                # Update additional statistics
+                if 'timestamp' in data:
+                    age = time.time() - data['timestamp']
+                    telemetry_data['statistics']['uptime'] = int(age)
+                    
         except FileNotFoundError:
             # File doesn't exist yet - expected on startup
-            pass
+            telemetry_data['system_status'] = {
+                'proximity_bridge': 'STOPPED',
+                'data_relay': 'Unknown',
+                'crop_monitor': 'Unknown'
+            }
+            telemetry_data['sensor_health'] = {
+                'rplidar': 'Unknown',
+                'realsense': 'Unknown',
+                'pixhawk': 'Unknown'
+            }
         except PermissionError as e:
             print(f"[ERROR] Permission denied reading telemetry file: {e}")
         except json.JSONDecodeError as e:
@@ -446,7 +484,8 @@ if __name__ == '__main__':
     print("\n" + "="*50)
     print("PROJECT ASTRA NZ - TELEMETRY DASHBOARD V8")
     print("="*50)
-    print(f"Dashboard URL: http://0.0.0.0:8081")
+    print(f"Dashboard (Local): http://0.0.0.0:8081")
+    print(f"Dashboard (Network): http://172.25.11.86:8081")
     print(f"API Endpoint: http://0.0.0.0:8081/api/telemetry")
     print("="*50 + "\n")
 
