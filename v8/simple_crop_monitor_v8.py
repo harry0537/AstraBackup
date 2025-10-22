@@ -32,7 +32,7 @@ class SimpleCropMonitor:
         self.last_capture_time = 0
 
     def connect_camera(self):
-        """Connect to RealSense camera"""
+        """Connect to RealSense camera with resource sharing"""
         try:
             if not REALSENSE_AVAILABLE:
                 print("✗ RealSense library not available")
@@ -40,7 +40,7 @@ class SimpleCropMonitor:
 
             print("Connecting to RealSense for image capture")
             
-            # First, check available devices and their capabilities
+            # Check if camera is already in use by proximity bridge
             try:
                 ctx = rs.context()
                 devices = ctx.query_devices()
@@ -49,22 +49,16 @@ class SimpleCropMonitor:
                     return False
                 
                 print(f"  [INFO] Found {len(devices)} RealSense device(s)")
-                for i, device in enumerate(devices):
-                    print(f"    Device {i}: {device.get_info(rs.camera_info.name)}")
-                    print(f"    Serial: {device.get_info(rs.camera_info.serial_number)}")
+                
+                # Try to use existing pipeline from proximity bridge first
+                if self.try_shared_camera():
+                    return True
                     
-                    # Check available streams
-                    sensors = device.query_sensors()
-                    for sensor in sensors:
-                        profiles = sensor.get_stream_profiles()
-                        color_profiles = [p for p in profiles if p.stream_type() == rs.stream.color]
-                        if color_profiles:
-                            print(f"    Color streams available: {len(color_profiles)}")
-                        else:
-                            print(f"    No color streams available")
             except Exception as e:
                 print(f"  [WARNING] Device detection failed: {e}")
             
+            # If shared camera doesn't work, try to create new pipeline
+            print("  [INFO] Creating new RealSense pipeline...")
             self.pipeline = rs.pipeline()
             config = rs.config()
 
@@ -129,11 +123,70 @@ class SimpleCropMonitor:
                     continue
 
             print("✗ All RealSense configurations failed")
+            
+            # Try alternative approach - use file-based sharing
+            if self.try_file_based_sharing():
+                return True
+                
             self.pipeline = None
             return False
 
         except Exception as e:
             print(f"✗ RealSense connection failed: {e}")
+            return False
+
+    def try_shared_camera(self):
+        """Try to use camera without creating new pipeline (resource sharing)"""
+        try:
+            print("  [SHARED] Attempting to use existing camera resources...")
+            
+            # Try to read from existing proximity bridge data
+            proximity_file = "/tmp/proximity_v8.json"
+            if os.path.exists(proximity_file):
+                try:
+                    with open(proximity_file, 'r') as f:
+                        data = json.load(f)
+                    if 'realsense_cm' in data and data['realsense_cm']:
+                        print("  [SHARED] Using proximity bridge RealSense data")
+                        # Set up for shared operation
+                        self.pipeline = None  # No pipeline needed
+                        return True
+                except:
+                    pass
+            
+            # Try to create a minimal pipeline that doesn't conflict
+            try:
+                print("  [SHARED] Creating minimal pipeline...")
+                self.pipeline = rs.pipeline()
+                config = rs.config()
+                
+                # Use a very low resolution to minimize resource usage
+                config.enable_stream(rs.stream.color, 320, 240, rs.format.bgr8, 15)
+                
+                # Try to start with minimal timeout
+                self.pipeline.start(config)
+                
+                # Quick test
+                frames = self.pipeline.wait_for_frames(timeout_ms=1000)
+                if frames.get_color_frame():
+                    print("  [SHARED] Minimal pipeline successful")
+                    return True
+                else:
+                    self.pipeline.stop()
+                    self.pipeline = None
+            except Exception as e:
+                if self.pipeline:
+                    try:
+                        self.pipeline.stop()
+                    except:
+                        pass
+                    self.pipeline = None
+                print(f"  [SHARED] Minimal pipeline failed: {e}")
+            
+            return False
+            
+        except Exception as e:
+            print(f"  [SHARED] Shared camera method failed: {e}")
             return False
 
     def try_native_profiles(self):
@@ -188,7 +241,62 @@ class SimpleCropMonitor:
         except Exception as e:
             print(f"  [WARNING] Native profile method failed: {e}")
             
-        return False
+            return False
+
+    def try_file_based_sharing(self):
+        """Try to use file-based sharing when camera is busy"""
+        try:
+            print("  [FILE] Attempting file-based camera sharing...")
+            
+            # Check if proximity bridge is writing RealSense data
+            proximity_file = "/tmp/proximity_v8.json"
+            if os.path.exists(proximity_file):
+                try:
+                    with open(proximity_file, 'r') as f:
+                        data = json.load(f)
+                    
+                    # Check if proximity bridge has RealSense data
+                    if 'realsense_cm' in data and data['realsense_cm']:
+                        print("  [FILE] Using proximity bridge RealSense data")
+                        self.pipeline = None  # No direct camera access needed
+                        return True
+                except Exception as e:
+                    print(f"  [FILE] Proximity data read failed: {e}")
+            
+            # Try to create a very minimal pipeline with different approach
+            try:
+                print("  [FILE] Creating ultra-minimal pipeline...")
+                self.pipeline = rs.pipeline()
+                config = rs.config()
+                
+                # Use absolute minimum settings
+                config.enable_stream(rs.stream.color, 160, 120, rs.format.bgr8, 5)
+                
+                # Try with very short timeout
+                self.pipeline.start(config)
+                
+                # Test with minimal requirements
+                frames = self.pipeline.wait_for_frames(timeout_ms=500)
+                if frames.get_color_frame():
+                    print("  [FILE] Ultra-minimal pipeline successful")
+                    return True
+                else:
+                    self.pipeline.stop()
+                    self.pipeline = None
+            except Exception as e:
+                if self.pipeline:
+                    try:
+                        self.pipeline.stop()
+                    except:
+                        pass
+                    self.pipeline = None
+                print(f"  [FILE] Ultra-minimal pipeline failed: {e}")
+            
+            return False
+            
+        except Exception as e:
+            print(f"  [FILE] File-based sharing failed: {e}")
+            return False
 
     def capture_image(self):
         """Capture and save single image with robust error handling"""
