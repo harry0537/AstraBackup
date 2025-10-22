@@ -39,17 +39,57 @@ class SimpleCropMonitor:
                 return False
 
             print("Connecting to RealSense for image capture")
+            
+            # First, check available devices and their capabilities
+            try:
+                ctx = rs.context()
+                devices = ctx.query_devices()
+                if len(devices) == 0:
+                    print("  [ERROR] No RealSense devices found")
+                    return False
+                
+                print(f"  [INFO] Found {len(devices)} RealSense device(s)")
+                for i, device in enumerate(devices):
+                    print(f"    Device {i}: {device.get_info(rs.camera_info.name)}")
+                    print(f"    Serial: {device.get_info(rs.camera_info.serial_number)}")
+                    
+                    # Check available streams
+                    sensors = device.query_sensors()
+                    for sensor in sensors:
+                        profiles = sensor.get_stream_profiles()
+                        color_profiles = [p for p in profiles if p.stream_type() == rs.stream.color]
+                        if color_profiles:
+                            print(f"    Color streams available: {len(color_profiles)}")
+                        else:
+                            print(f"    No color streams available")
+            except Exception as e:
+                print(f"  [WARNING] Device detection failed: {e}")
+            
             self.pipeline = rs.pipeline()
             config = rs.config()
 
-            # FIX BUG #10: Try multiple configurations with fallbacks
+            # First try native stream profiles from the device
+            if self.try_native_profiles():
+                return True
+
+            # Enhanced configurations with more fallback options
             configs_to_try = [
                 # High-res color for crop images (preferred)
                 (rs.stream.color, 1280, 720, rs.format.bgr8, 30),
-                # Fallback resolutions
-                (rs.stream.color, 640, 480, rs.format.bgr8, 30),
+                (rs.stream.color, 1280, 720, rs.format.bgr8, 15),
+                # Medium resolutions
                 (rs.stream.color, 848, 480, rs.format.bgr8, 30),
+                (rs.stream.color, 848, 480, rs.format.bgr8, 15),
+                (rs.stream.color, 640, 480, rs.format.bgr8, 30),
                 (rs.stream.color, 640, 480, rs.format.bgr8, 15),
+                # Lower resolutions for compatibility
+                (rs.stream.color, 640, 360, rs.format.bgr8, 30),
+                (rs.stream.color, 640, 360, rs.format.bgr8, 15),
+                (rs.stream.color, 424, 240, rs.format.bgr8, 30),
+                (rs.stream.color, 424, 240, rs.format.bgr8, 15),
+                # Very low resolution fallback
+                (rs.stream.color, 320, 240, rs.format.bgr8, 15),
+                (rs.stream.color, 320, 180, rs.format.bgr8, 15),
             ]
 
             for i, (stream, width, height, format, fps) in enumerate(configs_to_try):
@@ -95,6 +135,60 @@ class SimpleCropMonitor:
         except Exception as e:
             print(f"✗ RealSense connection failed: {e}")
             return False
+
+    def try_native_profiles(self):
+        """Try to use device's native stream profiles"""
+        try:
+            print("  [NATIVE] Trying device native stream profiles...")
+            ctx = rs.context()
+            devices = ctx.query_devices()
+            if len(devices) == 0:
+                return False
+                
+            device = devices[0]
+            sensors = device.query_sensors()
+            
+            for sensor in sensors:
+                profiles = sensor.get_stream_profiles()
+                color_profiles = [p for p in profiles if p.stream_type() == rs.stream.color]
+                
+                if not color_profiles:
+                    continue
+                    
+                # Sort by resolution (highest first)
+                color_profiles.sort(key=lambda x: x.as_video_stream_profile().width() * x.as_video_stream_profile().height(), reverse=True)
+                
+                # Try top 3 profiles
+                for profile in color_profiles[:3]:
+                    try:
+                        vp = profile.as_video_stream_profile()
+                        print(f"    [NATIVE] Trying {vp.width()}x{vp.height()} @ {vp.fps()}fps...")
+                        
+                        config = rs.config()
+                        config.enable_stream(profile)
+                        self.pipeline.start(config)
+                        
+                        # Test frame capture
+                        frames = self.pipeline.wait_for_frames(timeout_ms=3000)
+                        color_frame = frames.get_color_frame()
+                        if color_frame:
+                            print(f"✓ RealSense connected - {vp.width()}x{vp.height()} @ {vp.fps()}fps (native)")
+                            return True
+                        else:
+                            self.pipeline.stop()
+                            time.sleep(1)
+                    except Exception as e:
+                        if self.pipeline:
+                            try:
+                                self.pipeline.stop()
+                            except:
+                                pass
+                        continue
+                        
+        except Exception as e:
+            print(f"  [WARNING] Native profile method failed: {e}")
+            
+        return False
 
     def capture_image(self):
         """Capture and save single image with robust error handling"""
