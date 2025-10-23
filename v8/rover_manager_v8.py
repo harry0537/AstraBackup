@@ -69,7 +69,7 @@ class RoverManager:
     def load_hardware_config(self):
         """Load hardware configuration from config file"""
         default_hardware = {
-            'lidar_port': '/dev/ttyUSB1',
+            'lidar_port': '/dev/ttyUSB0',
             'pixhawk_port': '/dev/ttyACM0',
             'realsense_config': {'width': 424, 'height': 240, 'fps': 15}
         }
@@ -78,13 +78,17 @@ class RoverManager:
             try:
                 with open(CONFIG_FILE, 'r') as f:
                     config = json.load(f)
+                    # Ensure we always return valid values
+                    lidar_port = config.get('lidar_port')
+                    pixhawk_port = config.get('pixhawk_port')
+                    
                     return {
-                        'lidar_port': config.get('lidar_port', default_hardware['lidar_port']),
-                        'pixhawk_port': config.get('pixhawk_port', default_hardware['pixhawk_port']),
+                        'lidar_port': lidar_port if lidar_port else default_hardware['lidar_port'],
+                        'pixhawk_port': pixhawk_port if pixhawk_port else default_hardware['pixhawk_port'],
                         'realsense_config': config.get('realsense_config', default_hardware['realsense_config'])
                     }
-            except:
-                pass
+            except Exception as e:
+                print(f"[WARNING] Failed to load config: {e}, using defaults")
         return default_hardware
 
     def check_hardware(self):
@@ -96,7 +100,7 @@ class RoverManager:
         hardware_config = self.load_hardware_config()
 
         checks = {
-            'lidar': os.path.exists(hardware_config.get('lidar_port', '/dev/ttyUSB1')),
+            'lidar': os.path.exists(hardware_config.get('lidar_port', '/dev/ttyUSB0')),
             'pixhawk': os.path.exists(hardware_config.get('pixhawk_port', '/dev/ttyACM0')),
             'permissions': 'dialout' in str(subprocess.run(['groups'],
                                            capture_output=True).stdout)

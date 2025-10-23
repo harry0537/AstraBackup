@@ -25,7 +25,7 @@ def load_hardware_config():
     """Load hardware configuration from rover_config_v8.json"""
     config_file = "rover_config_v8.json"
     default_config = {
-        'lidar_port': '/dev/ttyUSB1',
+        'lidar_port': '/dev/ttyUSB0',
         'pixhawk_port': '/dev/ttyACM0',
         'realsense_config': {'width': 424, 'height': 240, 'fps': 15}
     }
