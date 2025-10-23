@@ -189,7 +189,6 @@ def detect_hardware():
                 result = subprocess.run(
                     [venv_python, "-c", f"""
 import sys
-sys.path.insert(0, '{os.getcwd()}')
 from rplidar import RPLidar
 test_lidar = RPLidar('{port}')
 info = test_lidar.get_info()
@@ -197,7 +196,8 @@ test_lidar.disconnect()
 print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
 """],
                     capture_output=True,
-                    timeout=10
+                    timeout=15,
+                    stderr=subprocess.STDOUT
                 )
                 if result.returncode == 0:
                     output = result.stdout.decode().strip()
@@ -207,10 +207,15 @@ print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
                         hardware['lidar_port'] = port_detected
                         print(f"✓ RPLidar detected at {port_detected} (Model: {model})")
                         break
+                else:
+                    # Show error for USB ports
+                    if '/dev/ttyUSB' in port:
+                        error_output = result.stdout.decode().strip()
+                        print(f"  Testing {port}: {error_output[:80]}")
             except Exception as e:
-                # Debug: Show which port failed (only for first few attempts)
-                if lidar_candidates.index(port) < 3:
-                    print(f"  Testing {port}: {str(e)[:50]}...")
+                # Show error for USB ports
+                if '/dev/ttyUSB' in port:
+                    print(f"  Testing {port}: {str(e)[:80]}")
                 continue
 
     if not hardware['lidar_port']:
