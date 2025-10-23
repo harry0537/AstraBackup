@@ -189,11 +189,25 @@ def detect_hardware():
                 result = subprocess.run(
                     [venv_python, "-c", f"""
 import sys
+import time
 from rplidar import RPLidar
-test_lidar = RPLidar('{port}')
-info = test_lidar.get_info()
-test_lidar.disconnect()
-print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
+test_lidar = None
+try:
+    test_lidar = RPLidar('{port}')
+    test_lidar.stop()
+    test_lidar.stop_motor()
+    time.sleep(0.5)
+    test_lidar.clean_input()
+    info = test_lidar.get_info()
+    print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
+finally:
+    if test_lidar:
+        try:
+            test_lidar.stop()
+            test_lidar.stop_motor()
+            test_lidar.disconnect()
+        except:
+            pass
 """],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
