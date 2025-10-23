@@ -256,11 +256,13 @@ DASHBOARD_HTML = '''
 
         <div class="rover-vision-panel">
             <div class="panel">
-                <h2>REAL-TIME ROVER VISION</h2>
+                <h2>REAL-TIME ROVER VISION (MJPEG STREAM)</h2>
                 <div class="crop-image-container">
-                    <img id="crop-image" src="/api/crop/image" alt="Latest crop image" style="max-width: 100%; height: auto; border: 1px solid #00ff00;">
+                    <img id="rover-stream" src="http://0.0.0.0:8082/stream" alt="RealSense Live Stream" 
+                         style="max-width: 100%; height: auto; border: 1px solid #00ff00;"
+                         onerror="this.src='/api/crop/image'; this.alt='Stream offline - showing archive';">
                     <div class="crop-status" id="crop-status">
-                        <!-- Populated by JavaScript -->
+                        Live RealSense feed @ ~15 FPS
                     </div>
                 </div>
             </div>

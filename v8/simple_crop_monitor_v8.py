@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
 Project Astra NZ - Simple Crop Monitor V8
-Captures one image per minute with RealSense for AWS relay
-Component 198 - Image capture only - Bug Fixes from V7
+Captures one image per hour with RealSense - Rolling 40 image archive
+Component 198 - Image archive only - Bug Fixes from V7
 """
 
 import cv2
 import numpy as np
 import time
 import os
+import glob
 from datetime import datetime
 import json
 
@@ -20,9 +21,13 @@ except ImportError:
 
 # Configuration
 COMPONENT_ID = 198
-CAPTURE_INTERVAL = 5  # 5 seconds
-IMAGE_OUTPUT = "/tmp/crop_latest.jpg"
+CAPTURE_INTERVAL = 3600  # 1 hour (3600 seconds)
+MAX_IMAGES = 40  # Maximum number of archived images
+IMAGE_DIR = "/tmp/crop_archive"  # Directory for archived images
 STATUS_FILE = "/tmp/crop_monitor_v8.json"
+
+# Create archive directory if it doesn't exist
+os.makedirs(IMAGE_DIR, exist_ok=True)
 
 class SimpleCropMonitor:
     def __init__(self):
@@ -298,8 +303,27 @@ class SimpleCropMonitor:
             print(f"  [FILE] File-based sharing failed: {e}")
             return False
 
+    def manage_image_archive(self):
+        """Manage rolling archive of 40 images - delete oldest if over limit"""
+        try:
+            # Get all archived images sorted by modification time (oldest first)
+            images = sorted(glob.glob(os.path.join(IMAGE_DIR, "crop_*.jpg")), 
+                          key=os.path.getmtime)
+            
+            # If we have 40 or more images, delete the oldest ones
+            while len(images) >= MAX_IMAGES:
+                oldest = images.pop(0)
+                try:
+                    os.remove(oldest)
+                    print(f"\n  [ARCHIVE] Deleted oldest image: {os.path.basename(oldest)}")
+                except Exception as e:
+                    print(f"\n  [ARCHIVE] Failed to delete {oldest}: {e}")
+                    break
+        except Exception as e:
+            print(f"\n  [ARCHIVE] Archive management failed: {e}")
+
     def capture_image(self):
-        """Capture and save single image with robust error handling"""
+        """Capture and save single image to rolling archive"""
         if not self.pipeline:
             print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No pipeline available", end='')
             return False
@@ -333,8 +357,15 @@ class SimpleCropMonitor:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Invalid image data", end='')
                 return False
 
-            # Save image with optimized compression for faster transmission
-            success = cv2.imwrite(IMAGE_OUTPUT, image, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            # Manage archive before saving new image
+            self.manage_image_archive()
+
+            # Generate timestamped filename
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            image_path = os.path.join(IMAGE_DIR, f"crop_{timestamp}.jpg")
+
+            # Save image with space-optimized compression (JPEG quality 70)
+            success = cv2.imwrite(image_path, image, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if not success:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image", end='')
                 return False
@@ -343,11 +374,16 @@ class SimpleCropMonitor:
             self.capture_count += 1
             self.last_capture_time = time.time()
 
+            # Count current archived images
+            num_archived = len(glob.glob(os.path.join(IMAGE_DIR, "crop_*.jpg")))
+
             status = {
                 'timestamp': datetime.now().isoformat(),
                 'capture_count': self.capture_count,
-                'image_path': IMAGE_OUTPUT,
-                'image_size': os.path.getsize(IMAGE_OUTPUT) if os.path.exists(IMAGE_OUTPUT) else 0
+                'latest_image': image_path,
+                'image_size': os.path.getsize(image_path),
+                'total_archived': num_archived,
+                'archive_dir': IMAGE_DIR
             }
 
             # Write status file with error handling
@@ -357,7 +393,7 @@ class SimpleCropMonitor:
             except Exception as e:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Status file write failed: {e}", end='')
 
-            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count} ({os.path.getsize(IMAGE_OUTPUT)} bytes)", end='', flush=True)
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured #{self.capture_count} ({os.path.getsize(image_path)} bytes) | Archive: {num_archived}/{MAX_IMAGES}", end='', flush=True)
             return True
 
         except Exception as e:
@@ -383,8 +419,9 @@ class SimpleCropMonitor:
         print("=" * 60)
         print("Simple Crop Monitor V8 - Component 198")
         print("=" * 60)
-        print(f"Capture interval: {CAPTURE_INTERVAL} seconds")
-        print(f"Output: {IMAGE_OUTPUT}")
+        print(f"Capture interval: {CAPTURE_INTERVAL} seconds ({CAPTURE_INTERVAL/3600:.1f} hours)")
+        print(f"Archive directory: {IMAGE_DIR}")
+        print(f"Max archived images: {MAX_IMAGES}")
         print("=" * 60)
 
         if not self.connect_camera():
@@ -392,9 +429,10 @@ class SimpleCropMonitor:
             return
 
         print("\n✓ Crop monitor operational")
-        print("  • Capturing 1 image every 5 seconds")
-        print("  • Images saved to /tmp for relay")
-        print("  • High-frequency capture for dashboard feed")
+        print(f"  • Capturing 1 image every {CAPTURE_INTERVAL/3600:.1f} hour(s)")
+        print(f"  • Rolling archive of {MAX_IMAGES} images")
+        print(f"  • Images saved to {IMAGE_DIR}")
+        print(f"  • JPEG quality: 70 (space-optimized)")
         print()
 
         # Initial capture

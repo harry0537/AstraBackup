@@ -40,12 +40,18 @@ COMPONENTS = {
         'enabled': True
     },
     198: {
-        'name': 'Crop Monitor',
+        'name': 'Crop Monitor (Hourly Archive)',
         'script': 'simple_crop_monitor_v8.py',
         'critical': False,
         'enabled': True
     },
     199: {
+        'name': 'RealSense Stream',
+        'script': 'realsense_stream_v8.py',
+        'critical': False,
+        'enabled': True
+    },
+    200: {
         'name': 'Telemetry Dashboard',
         'script': 'telemetry_dashboard_v8.py',
         'critical': False,
