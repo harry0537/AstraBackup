@@ -7,6 +7,7 @@ Real-time monitoring interface for proximity sensors and system status - Bug Fix
 import json
 import time
 import threading
+import os
 from datetime import datetime
 from flask import Flask, render_template_string, jsonify
 import numpy as np

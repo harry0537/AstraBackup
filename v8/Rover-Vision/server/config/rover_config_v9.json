@@ -1,0 +1,33 @@
+{
+  "dashboard_ip": "0.0.0.0",
+  "dashboard_port": 8081,
+  "mavlink_port": 14550,
+  "rover_ip": "172.25.77.186",
+  "lidar_port": "/dev/ttyUSB0",
+  "pixhawk_port": "/dev/ttyACM0",
+  "realsense_config": {
+    "width": 640,
+    "height": 480,
+    "fps": 15
+  },
+  "crop_monitor": {
+    "interval": 60,
+    "max_images": 40,
+    "quality": 60
+  },
+  "proximity_bridge": {
+    "sector_count": 8,
+    "max_distance_cm": 2500,
+    "mavlink_enabled": true
+  },
+  "data_relay": {
+    "enabled": true,
+    "relay_interval": 30
+  },
+  "telemetry_dashboard": {
+    "refresh_rate": 1000,
+    "enable_gps": true,
+    "enable_power": true,
+    "enable_navigation": true
+  }
+}
