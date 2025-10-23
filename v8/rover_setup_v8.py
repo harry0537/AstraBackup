@@ -160,9 +160,17 @@ def detect_hardware():
 
     # Detect LIDAR
     print("Detecting RPLidar...")
+    
+    # First, scan for all available USB ports
+    usb_ports = []
+    for i in range(10):  # Check up to 10 USB ports
+        port = f'/dev/ttyUSB{i}'
+        if os.path.exists(port):
+            usb_ports.append(port)
+    
     lidar_candidates = [
         '/dev/rplidar',  # Symlink from udev rules
-        '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2', '/dev/ttyUSB3',
+    ] + usb_ports + [
         '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2', '/dev/ttyACM3'
     ]
 
@@ -172,7 +180,7 @@ def detect_hardware():
             try:
                 # Quick test to verify it's a LIDAR
                 from rplidar import RPLidar
-                test_lidar = RPLidar(port, baudrate=1000000, timeout=1)
+                test_lidar = RPLidar(port)
                 info = test_lidar.get_info()
                 test_lidar.disconnect()
                 hardware['lidar_port'] = port
@@ -185,6 +193,9 @@ def detect_hardware():
                         test_lidar.disconnect()
                     except:
                         pass
+                # Debug: Show which port failed (only for first few attempts)
+                if lidar_candidates.index(port) < 3:
+                    print(f"  Testing {port}: {str(e)[:50]}...")
                 continue
 
     if not hardware['lidar_port']:
