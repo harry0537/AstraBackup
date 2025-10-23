@@ -161,6 +161,10 @@ def detect_hardware():
         'realsense_config': None
     }
 
+    # Virtual environment Python path
+    venv_path = os.path.expanduser("~/rover_venv")
+    venv_python = os.path.join(venv_path, "bin", "python3")
+    
     # Detect LIDAR
     print("Detecting RPLidar...")
     
