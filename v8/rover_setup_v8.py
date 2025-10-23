@@ -195,9 +195,9 @@ info = test_lidar.get_info()
 test_lidar.disconnect()
 print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
 """],
-                    capture_output=True,
-                    timeout=15,
-                    stderr=subprocess.STDOUT
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=15
                 )
                 if result.returncode == 0:
                     output = result.stdout.decode().strip()
