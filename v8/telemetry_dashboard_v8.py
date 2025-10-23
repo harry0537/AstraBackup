@@ -258,9 +258,12 @@ DASHBOARD_HTML = '''
             <div class="panel">
                 <h2>REAL-TIME ROVER VISION (MJPEG STREAM)</h2>
                 <div class="crop-image-container">
-                    <img id="rover-stream" src="http://0.0.0.0:8082/stream" alt="RealSense Live Stream" 
+                    <img id="rover-stream" src="" alt="RealSense Live Stream" 
                          style="max-width: 100%; height: auto; border: 1px solid #00ff00;"
-                         onerror="this.src='/api/crop/image'; this.alt='Stream offline - showing archive';">
+                         onerror="this.style.display='none'; document.getElementById('stream-offline').style.display='block';">
+                    <div id="stream-offline" style="display: none; padding: 20px; text-align: center; color: #ff6600;">
+                        Stream offline - RealSense component not running
+                    </div>
                     <div class="crop-status" id="crop-status">
                         Live RealSense feed @ ~15 FPS
                     </div>
@@ -270,6 +273,11 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
+        // Set RealSense stream URL dynamically
+        const streamImg = document.getElementById('rover-stream');
+        const streamUrl = `http://${window.location.hostname}:8082/stream`;
+        streamImg.src = streamUrl;
+        
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
         

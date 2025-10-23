@@ -180,11 +180,13 @@ streamer = RealSenseStreamer()
 @app.route('/')
 def index():
     """Simple status page"""
+    status = "RUNNING" if streamer.pipeline else "NO CAMERA"
     return f"""
     <html>
     <head><title>RealSense Stream</title></head>
     <body style="background: #000; color: #0f0; font-family: monospace; text-align: center; padding: 50px;">
         <h1>RealSense MJPEG Stream</h1>
+        <p>Status: {status}</p>
         <p>Frames captured: {streamer.frame_count}</p>
         <p>Stream URL: <a href="/stream" style="color: #0ff;">/stream</a></p>
         <img src="/stream" style="max-width: 90%; border: 2px solid #0f0;">
