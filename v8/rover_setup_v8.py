@@ -50,7 +50,10 @@ def install_dependencies():
 
     if not os.path.exists(venv_path):
         print("Creating virtual environment...")
-        run_cmd(f"python3 -m venv {venv_path}")
+        if not run_cmd(f"python3 -m venv {venv_path}"):
+            print("✗ Failed to create virtual environment")
+            return False
+        print("✓ Virtual environment created")
 
     # FIX BUG #2: Check packages in venv, not current environment
     for pkg, import_name in packages.items():
@@ -387,6 +390,45 @@ WantedBy=multi-user.target
         print("  Start: sudo systemctl start astra-rover-v8")
         print("  Stop:  sudo systemctl stop astra-rover-v8")
 
+def verify_virtual_environment():
+    """Verify virtual environment is working correctly"""
+    print("\n[5/5] Virtual Environment Verification")
+    print("-" * 40)
+    
+    venv_path = os.path.expanduser("~/rover_venv")
+    venv_python = os.path.join(venv_path, "bin", "python3")
+    
+    if not os.path.exists(venv_python):
+        print("✗ Virtual environment Python not found")
+        return False
+    
+    # Test critical imports
+    critical_imports = ['rplidar', 'pymavlink', 'pyrealsense2', 'flask']
+    all_good = True
+    
+    for module in critical_imports:
+        try:
+            result = subprocess.run(
+                [venv_python, "-c", f"import {module}"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                print(f"✓ {module}")
+            else:
+                print(f"✗ {module} - Import failed")
+                all_good = False
+        except Exception as e:
+            print(f"✗ {module} - Error: {e}")
+            all_good = False
+    
+    if all_good:
+        print("✓ Virtual environment ready")
+    else:
+        print("⚠ Virtual environment has issues")
+    
+    return all_good
+
 def print_summary():
     """Print setup summary"""
     print("\n" + "=" * 60)
@@ -424,6 +466,7 @@ def main():
     print(f"\n✓ Complete config saved to {CONFIG_FILE}")
 
     create_service()
+    verify_virtual_environment()
     print_summary()
 
 if __name__ == "__main__":

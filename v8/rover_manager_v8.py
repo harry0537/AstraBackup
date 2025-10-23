@@ -14,6 +14,17 @@ from datetime import datetime
 
 CONFIG_FILE = "rover_config_v8.json"
 
+# Virtual environment configuration
+VENV_PATH = os.path.expanduser("~/rover_venv")
+VENV_PYTHON = os.path.join(VENV_PATH, "bin", "python3")
+
+def get_python_executable():
+    """Get the correct Python executable (venv if available, system otherwise)"""
+    if os.path.exists(VENV_PYTHON):
+        return VENV_PYTHON
+    else:
+        return sys.executable
+
 # Component definitions (only stable components enabled by default)
 COMPONENTS = {
     195: {
@@ -132,7 +143,7 @@ class RoverManager:
             stderr = open(f"logs/{log_name}.err.log", 'a')
 
             process = subprocess.Popen(
-                [sys.executable, comp_info['script']],
+                [get_python_executable(), comp_info['script']],
                 stdout=stdout,
                 stderr=stderr,
                 env=env
@@ -258,6 +269,15 @@ class RoverManager:
         print("=" * 60)
         print("PROJECT ASTRA NZ - ROVER MANAGER V8")
         print("=" * 60)
+        
+        # Show which Python executable is being used
+        python_exe = get_python_executable()
+        if python_exe == VENV_PYTHON:
+            print(f"🐍 Using Virtual Environment: {python_exe}")
+        else:
+            print(f"🐍 Using System Python: {python_exe}")
+            print("⚠ WARNING: Virtual environment not found, using system Python")
+        
         print(f"Dashboard (Local): http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
         print(f"Dashboard (Network): http://{self.config.get('rover_ip', 'ROVER_IP')}:{self.config['dashboard_port']}")
         print("=" * 60)
