@@ -181,21 +181,29 @@ def detect_hardware():
         if os.path.exists(port):
             test_lidar = None
             try:
-                # Quick test to verify it's a LIDAR
-                from rplidar import RPLidar
-                test_lidar = RPLidar(port)
-                info = test_lidar.get_info()
-                test_lidar.disconnect()
-                hardware['lidar_port'] = port
-                print(f"✓ RPLidar detected at {port} (Model: {info['model']})")
-                break
+                # Quick test to verify it's a LIDAR using venv Python
+                result = subprocess.run(
+                    [venv_python, "-c", f"""
+import sys
+sys.path.insert(0, '{os.getcwd()}')
+from rplidar import RPLidar
+test_lidar = RPLidar('{port}')
+info = test_lidar.get_info()
+test_lidar.disconnect()
+print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
+"""],
+                    capture_output=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    output = result.stdout.decode().strip()
+                    if "LIDAR_DETECTED:" in output:
+                        port_info = output.split("LIDAR_DETECTED:")[1]
+                        port_detected, model = port_info.split(":", 1)
+                        hardware['lidar_port'] = port_detected
+                        print(f"✓ RPLidar detected at {port_detected} (Model: {model})")
+                        break
             except Exception as e:
-                # FIX BUG #4: Always disconnect on exception
-                if test_lidar:
-                    try:
-                        test_lidar.disconnect()
-                    except:
-                        pass
                 # Debug: Show which port failed (only for first few attempts)
                 if lidar_candidates.index(port) < 3:
                     print(f"  Testing {port}: {str(e)[:50]}...")
