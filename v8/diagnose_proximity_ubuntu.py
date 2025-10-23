@@ -8,6 +8,17 @@ import os
 import sys
 import json
 import subprocess
+
+# Use virtual environment Python if available
+VENV_PATH = os.path.expanduser("~/rover_venv")
+VENV_PYTHON = os.path.join(VENV_PATH, "bin", "python3")
+
+def get_python_executable():
+    """Get the correct Python executable (venv if available, system otherwise)"""
+    if os.path.exists(VENV_PYTHON):
+        return VENV_PYTHON
+    else:
+        return sys.executable
 import time
 import stat
 
@@ -72,22 +83,19 @@ def check_python_libraries():
         ('pyrealsense2', 'rs')
     ]
     
+    python_exe = get_python_executable()
     for lib_name, import_name in libraries:
         try:
-            if lib_name == 'pyrealsense2':
-                import pyrealsense2 as rs
+            # Use venv Python to check if library is available
+            result = subprocess.run(
+                [python_exe, "-c", f"import {import_name}"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
                 print(f"  {lib_name}: OK Available")
-            elif lib_name == 'rplidar':
-                from rplidar import RPLidar
-                print(f"  {lib_name}: OK Available")
-            elif lib_name == 'pymavlink':
-                from pymavlink import mavutil
-                print(f"  {lib_name}: OK Available")
-            elif lib_name == 'numpy':
-                import numpy as np
-                print(f"  {lib_name}: OK Available")
-        except ImportError as e:
-            print(f"  {lib_name}: MISSING - {e}")
+            else:
+                print(f"  {lib_name}: MISSING")
         except Exception as e:
             print(f"  {lib_name}: ERROR - {e}")
 
