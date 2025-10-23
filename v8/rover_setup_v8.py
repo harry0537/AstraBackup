@@ -193,10 +193,7 @@ import time
 from rplidar import RPLidar
 test_lidar = None
 try:
-    test_lidar = RPLidar('{port}')
-    test_lidar.stop()
-    test_lidar.stop_motor()
-    time.sleep(0.5)
+    test_lidar = RPLidar('{port}', baudrate=1000000, timeout=2)
     test_lidar.clean_input()
     info = test_lidar.get_info()
     print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
