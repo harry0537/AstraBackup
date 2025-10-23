@@ -211,11 +211,11 @@ print(f"LIDAR_DETECTED:{port}:{{info['model']}}")
                     # Show error for USB ports
                     if '/dev/ttyUSB' in port:
                         error_output = result.stdout.decode().strip()
-                        print(f"  Testing {port}: {error_output[:80]}")
+                        print(f"  Testing {port}: {error_output[:200]}")
             except Exception as e:
                 # Show error for USB ports
                 if '/dev/ttyUSB' in port:
-                    print(f"  Testing {port}: {str(e)[:80]}")
+                    print(f"  Testing {port}: {str(e)[:200]}")
                 continue
 
     if not hardware['lidar_port']:
