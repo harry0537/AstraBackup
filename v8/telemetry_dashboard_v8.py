@@ -522,18 +522,8 @@ DASHBOARD_HTML = '''
         // Initial draw
         drawRadar([2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500]);
 
-        // Update every 1 second for faster crop image refresh
+        // Update every 1 second
         setInterval(updateDashboard, 1000);
-        
-        // Force rover vision image update every 5 seconds
-        setInterval(function() {
-            const imageElement = document.getElementById('crop-image');
-            if (imageElement) {
-                const timestamp = new Date().getTime();
-                imageElement.src = `/api/crop/image?t=${timestamp}`;
-                console.log('Rover vision image refreshed at', new Date().toLocaleTimeString());
-            }
-        }, 5000);
     </script>
 </body>
 </html>
