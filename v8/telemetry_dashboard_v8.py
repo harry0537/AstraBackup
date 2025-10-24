@@ -265,7 +265,7 @@ DASHBOARD_HTML = '''
                         Rover vision offline - Crop monitor not running
                     </div>
                     <div class="crop-status" id="crop-status">
-                        Rover vision updates when new image captured
+                        Rover vision updates every 5 seconds
                     </div>
                 </div>
             </div>
@@ -273,29 +273,17 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Smart refresh rover vision - check for new images
+        // Simple reliable refresh - update every 5 seconds
         const roverVisionImg = document.getElementById('rover-vision');
-        let lastImageTimestamp = 0;
         
-        function checkForNewImage() {
-            fetch('/api/crop/status')
-                .then(response => response.json())
-                .then(data => {
-                    const currentTimestamp = data.latest_image_timestamp || 0;
-                    if (currentTimestamp > lastImageTimestamp) {
-                        lastImageTimestamp = currentTimestamp;
-                        const timestamp = new Date().getTime();
-                        roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
-                    }
-                })
-                .catch(error => {
-                    console.log('Failed to check crop status:', error);
-                });
+        function refreshRoverVision() {
+            const timestamp = new Date().getTime();
+            roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
         }
         
-        // Initial load and set up smart refresh timer
-        checkForNewImage();
-        setInterval(checkForNewImage, 1000); // Check every second for new images
+        // Initial load and set up refresh timer
+        refreshRoverVision();
+        setInterval(refreshRoverVision, 5000); // Refresh every 5 seconds
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');

@@ -132,6 +132,7 @@ class RoverManager:
     def start_component(self, comp_id, comp_info):
         """Start a single component"""
         if not comp_info['enabled'] or not os.path.exists(comp_info['script']):
+            print(f"  ⚠ Skipping {comp_info['name']}: {'disabled' if not comp_info['enabled'] else 'script not found'}")
             return False
 
         try:
@@ -145,8 +146,11 @@ class RoverManager:
             stdout = open(f"logs/{log_name}.out.log", 'a')
             stderr = open(f"logs/{log_name}.err.log", 'a')
 
+            python_exe = get_python_executable()
+            print(f"  → Starting {comp_info['name']} with {python_exe}")
+            
             process = subprocess.Popen(
-                [get_python_executable(), comp_info['script']],
+                [python_exe, comp_info['script']],
                 stdout=stdout,
                 stderr=stderr,
                 env=env
@@ -160,6 +164,7 @@ class RoverManager:
                 'stdout': stdout,
                 'stderr': stderr
             }
+            print(f"  ✓ {comp_info['name']} started (PID: {process.pid})")
             return True
         except Exception as e:
             print(f"  ✗ Failed to start {comp_info['name']}: {e}")
