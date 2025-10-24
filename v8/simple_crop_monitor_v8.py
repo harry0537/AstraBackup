@@ -456,10 +456,16 @@ class SimpleCropMonitor:
         # Initial capture to populate all 10 dashboard slots
         print("Initializing dashboard slots (1-10)...")
         for i in range(10):
-            self.capture_image()
-            print(f"  • Initialized slot {i+1}/10")
-            time.sleep(0.5)  # Small delay between captures
+            success = self.capture_image()
+            if success:
+                print(f"  • Initialized slot {self.current_slot-1}/10 ✓")
+            else:
+                print(f"  • Failed to initialize slot {self.current_slot-1}/10 ✗")
+            time.sleep(0.3)  # Small delay between captures
         print("✓ All dashboard slots initialized\n")
+        
+        # Reset current slot to 1 to start the rolling cycle
+        self.current_slot = 1
 
         try:
             consecutive_failures = 0
