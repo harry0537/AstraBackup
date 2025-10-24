@@ -266,7 +266,7 @@ DASHBOARD_HTML = '''
                         Rover vision offline - Crop monitor not running
                     </div>
                     <div class="crop-status" id="crop-status">
-                        Rover vision updates every 5 seconds
+                        Rolling buffer: Slot <span id="current-slot">1</span>/10 (updates every 6s)
                         <br><small><a href="/api/crop/status" target="_blank" style="color: #0ff;">Debug: Check crop status</a></small>
                     </div>
                 </div>
@@ -275,34 +275,38 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Force refresh every 5 seconds with file modification check
+        // Rolling buffer system - cycle through slots 1-10 every 6 seconds
         const roverVisionImg = document.getElementById('rover-vision');
-        let lastImageTime = 0;
+        let currentSlot = 1;
         
         function refreshRoverVision() {
-            const timestamp = new Date().getTime();
-            const newSrc = `/api/crop/image?t=${timestamp}`;
-            
-            // Always update the src to force refresh
+            // Cycle through slots 1-10
+            const newSrc = `/api/crop/image/${currentSlot}`;
             roverVisionImg.src = newSrc;
-            console.log(`Forcing rover vision refresh at ${new Date().toLocaleTimeString()}`);
+            console.log(`Loading rover vision slot ${currentSlot} at ${new Date().toLocaleTimeString()}`);
+            
+            // Update slot display
+            document.getElementById('current-slot').textContent = currentSlot;
+            
+            // Advance to next slot (1-10 rolling)
+            currentSlot = (currentSlot % 10) + 1;
         }
         
         // Handle image load errors
         roverVisionImg.onerror = function() {
-            console.log('Rover vision image failed to load');
-            // Try again in 1 second
-            setTimeout(refreshRoverVision, 1000);
+            console.log(`Slot ${currentSlot-1} failed to load, trying next...`);
+            // Try next slot immediately
+            setTimeout(refreshRoverVision, 500);
         };
         
         // Handle successful image load
         roverVisionImg.onload = function() {
-            console.log('Rover vision image loaded successfully');
+            console.log(`Slot ${currentSlot-1} loaded successfully`);
         };
         
-        // Initial load and set up refresh timer
+        // Initial load and set up rolling timer
         refreshRoverVision();
-        setInterval(refreshRoverVision, 5000); // Force refresh every 5 seconds
+        setInterval(refreshRoverVision, 6000); // Cycle every 6 seconds
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
@@ -552,15 +556,19 @@ def update_proximity(sector, distance):
         telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
     return jsonify({'status': 'ok'})
 
-@app.route('/api/crop/image')
-def get_crop_image():
-    """Serve the latest crop monitor image"""
+@app.route('/api/crop/image/<int:slot>')
+def get_crop_image(slot):
+    """Serve a specific slot from the rolling buffer (1-10)"""
     from flask import send_file, Response
     import os
     import io
     from PIL import Image, ImageDraw, ImageFont
     
-    image_path = "/tmp/crop_latest.jpg"
+    # Validate slot number
+    if slot < 1 or slot > 10:
+        slot = 1
+    
+    image_path = f"/tmp/rover_vision/{slot}.jpg"
     if os.path.exists(image_path):
         # Read file directly to avoid server-side caching
         try:
@@ -571,10 +579,9 @@ def get_crop_image():
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
-            response.headers['Last-Modified'] = datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
             return response
         except Exception as e:
-            print(f"Error reading crop image: {e}")
+            print(f"Error reading crop image slot {slot}: {e}")
             pass
     else:
         # Create a placeholder image

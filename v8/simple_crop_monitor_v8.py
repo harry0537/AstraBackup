@@ -24,10 +24,12 @@ COMPONENT_ID = 198
 CAPTURE_INTERVAL = 5  # 5 seconds
 MAX_IMAGES = 10  # Maximum number of archived images
 IMAGE_DIR = "/tmp/crop_archive"  # Directory for archived images
+DASHBOARD_DIR = "/tmp/rover_vision"  # Directory for dashboard rolling images
 STATUS_FILE = "/tmp/crop_monitor_v8.json"
 
-# Create archive directory if it doesn't exist
+# Create directories if they don't exist
 os.makedirs(IMAGE_DIR, exist_ok=True)
+os.makedirs(DASHBOARD_DIR, exist_ok=True)
 
 class SimpleCropMonitor:
     def __init__(self):
@@ -35,6 +37,7 @@ class SimpleCropMonitor:
         self.running = True
         self.capture_count = 0
         self.last_capture_time = 0
+        self.current_slot = 1  # Rolling slot number 1-10
 
     def connect_camera(self):
         """Connect to RealSense camera with resource sharing"""
@@ -370,12 +373,15 @@ class SimpleCropMonitor:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image", end='')
                 return False
 
-            # Also save latest image for dashboard (simple overwrite - no symlink)
+            # Also save to dashboard rolling buffer (numbered 1-10)
             try:
-                latest_path = '/tmp/crop_latest.jpg'
-                cv2.imwrite(latest_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                dashboard_image_path = os.path.join(DASHBOARD_DIR, f"{self.current_slot}.jpg")
+                cv2.imwrite(dashboard_image_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                
+                # Advance to next slot (1-10 rolling)
+                self.current_slot = (self.current_slot % 10) + 1
             except Exception as e:
-                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Failed to save latest image: {e}", end='')
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Failed to save dashboard image: {e}", end='')
 
             # Update status
             self.capture_count += 1
@@ -385,7 +391,7 @@ class SimpleCropMonitor:
             num_archived = len(glob.glob(os.path.join(IMAGE_DIR, "crop_*.jpg")))
             
             # Debug output
-            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count} (archived: {num_archived}/{MAX_IMAGES})", end='')
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count} → slot {self.current_slot-1} (archived: {num_archived}/{MAX_IMAGES})", end='')
 
             status = {
                 'timestamp': datetime.now().isoformat(),
@@ -394,7 +400,8 @@ class SimpleCropMonitor:
                 'image_size': os.path.getsize(image_path),
                 'total_archived': num_archived,
                 'archive_dir': IMAGE_DIR,
-                'latest_image_timestamp': time.time()  # Unix timestamp for easy comparison
+                'latest_image_timestamp': time.time(),  # Unix timestamp for easy comparison
+                'current_slot': self.current_slot  # Current slot for dashboard rolling (1-10)
             }
 
             # Write status file with error handling
