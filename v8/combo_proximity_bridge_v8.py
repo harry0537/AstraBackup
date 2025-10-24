@@ -20,6 +20,13 @@ try:
 except ImportError:
     REALSENSE_AVAILABLE = False
 
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("[WARNING] cv2 not available - color frame saving disabled")
+
 # Hardware configuration - Load from config file
 def load_hardware_config():
     """Load hardware configuration from rover_config_v8.json"""
@@ -382,9 +389,8 @@ class ComboProximityBridge:
                     continue
 
                 # Save color frame for streaming component
-                if color_frame:
+                if color_frame and CV2_AVAILABLE:
                     try:
-                        import cv2
                         color_image = np.asanyarray(color_frame.get_data())
                         cv2.imwrite('/tmp/realsense_latest.jpg', color_image, 
                                    [cv2.IMWRITE_JPEG_QUALITY, 85])
