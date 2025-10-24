@@ -562,12 +562,20 @@ def get_crop_image():
     
     image_path = "/tmp/crop_latest.jpg"
     if os.path.exists(image_path):
-        # Add cache-busting headers to prevent browser caching
-        response = send_file(image_path, mimetype='image/jpeg')
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        return response
+        # Read file directly to avoid server-side caching
+        try:
+            with open(image_path, 'rb') as f:
+                img_data = f.read()
+            
+            response = Response(img_data, mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            response.headers['Last-Modified'] = datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+            return response
+        except Exception as e:
+            print(f"Error reading crop image: {e}")
+            pass
     else:
         # Create a placeholder image
         try:
