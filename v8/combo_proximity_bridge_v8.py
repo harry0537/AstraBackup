@@ -148,20 +148,22 @@ class ComboProximityBridge:
             # Use detected configuration first, then fallbacks
             detected_config = REALSENSE_CONFIG
             configs_to_try = [
-                # Use detected configuration first
-                (rs.stream.depth, detected_config['width'], detected_config['height'], rs.format.z16, detected_config['fps']),
+                # Use detected configuration first (depth + color for streaming)
+                (detected_config['width'], detected_config['height'], detected_config['fps']),
                 # Fallback configurations
-                (rs.stream.depth, 424, 240, rs.format.z16, 15),
-                (rs.stream.depth, 320, 240, rs.format.z16, 15),
-                (rs.stream.depth, 640, 480, rs.format.z16, 6),
+                (424, 240, 15),
+                (640, 480, 15),
+                (848, 480, 15),
             ]
 
             connected = False
-            for i, (stream, width, height, format, fps) in enumerate(configs_to_try):
+            for i, (width, height, fps) in enumerate(configs_to_try):
                 try:
-                    print(f"  [CONFIG] Trying {width}x{height} @ {fps}fps...")
+                    print(f"  [CONFIG] Trying {width}x{height} @ {fps}fps (depth + color)...")
                     config = rs.config()
-                    config.enable_stream(stream, width, height, format, fps)
+                    # Enable both depth and color streams
+                    config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
+                    config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
                     self.pipeline.start(config)
 
                     # Wait for camera to stabilize
@@ -373,9 +375,21 @@ class ComboProximityBridge:
             try:
                 frames = self.pipeline.wait_for_frames(timeout_ms=500)
                 depth_frame = frames.get_depth_frame()
+                color_frame = frames.get_color_frame()  # Also get color frame for streaming
+                
                 if not depth_frame:
                     time.sleep(0.03)
                     continue
+
+                # Save color frame for streaming component
+                if color_frame:
+                    try:
+                        import cv2
+                        color_image = np.asanyarray(color_frame.get_data())
+                        cv2.imwrite('/tmp/realsense_latest.jpg', color_image, 
+                                   [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    except:
+                        pass  # Silent fail - streaming is optional
 
                 width = depth_frame.get_width()
                 height = depth_frame.get_height()
