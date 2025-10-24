@@ -260,7 +260,8 @@ DASHBOARD_HTML = '''
                 <div class="crop-image-container">
                     <img id="rover-vision" src="/api/crop/image" alt="Rover Vision" 
                          style="max-width: 100%; height: auto; border: 1px solid #00ff00;"
-                         onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';">
+                         onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
+                         onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
                     <div id="vision-offline" style="display: none; padding: 20px; text-align: center; color: #ff6600;">
                         Rover vision offline - Crop monitor not running
                     </div>
@@ -274,20 +275,31 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Aggressive refresh to force image updates
+        // Reliable refresh with proper error handling
         const roverVisionImg = document.getElementById('rover-vision');
         
         function refreshRoverVision() {
-            // Clear the image first to force reload
-            roverVisionImg.src = '';
+            const timestamp = new Date().getTime();
+            const newSrc = `/api/crop/image?t=${timestamp}`;
             
-            // Wait a moment then set new src with timestamp
-            setTimeout(() => {
-                const timestamp = new Date().getTime();
-                roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
+            // Only update if the src is different
+            if (roverVisionImg.src !== newSrc) {
+                roverVisionImg.src = newSrc;
                 console.log(`Refreshing rover vision at ${new Date().toLocaleTimeString()}`);
-            }, 100);
+            }
         }
+        
+        // Handle image load errors
+        roverVisionImg.onerror = function() {
+            console.log('Rover vision image failed to load');
+            // Try again in 2 seconds
+            setTimeout(refreshRoverVision, 2000);
+        };
+        
+        // Handle successful image load
+        roverVisionImg.onload = function() {
+            console.log('Rover vision image loaded successfully');
+        };
         
         // Initial load and set up refresh timer
         refreshRoverVision();
