@@ -392,7 +392,8 @@ class SimpleCropMonitor:
                 'latest_image': image_path,
                 'image_size': os.path.getsize(image_path),
                 'total_archived': num_archived,
-                'archive_dir': IMAGE_DIR
+                'archive_dir': IMAGE_DIR,
+                'latest_image_timestamp': time.time()  # Unix timestamp for easy comparison
             }
 
             # Write status file with error handling
