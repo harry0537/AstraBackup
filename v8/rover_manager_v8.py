@@ -141,6 +141,9 @@ class RoverManager:
             return False
 
         try:
+            # Create logs directory if it doesn't exist
+            os.makedirs('logs', exist_ok=True)
+            
             env = os.environ.copy()
             env['ASTRA_CONFIG'] = json.dumps(self.config)
 
