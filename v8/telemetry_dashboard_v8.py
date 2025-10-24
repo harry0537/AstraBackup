@@ -562,6 +562,7 @@ def get_crop_image(slot):
     from flask import send_file, Response
     import os
     import io
+    import glob
     from PIL import Image, ImageDraw, ImageFont
     
     # Validate slot number
@@ -569,8 +570,9 @@ def get_crop_image(slot):
         slot = 1
     
     image_path = f"/tmp/rover_vision/{slot}.jpg"
+    
+    # Try the rolling buffer first
     if os.path.exists(image_path):
-        # Read file directly to avoid server-side caching
         try:
             with open(image_path, 'rb') as f:
                 img_data = f.read()
@@ -582,38 +584,52 @@ def get_crop_image(slot):
             return response
         except Exception as e:
             print(f"Error reading crop image slot {slot}: {e}")
-            pass
-    else:
-        # Create a placeholder image
+    
+    # Fallback: try to get the latest image from archive
+    try:
+        archive_images = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+        if archive_images:
+            with open(archive_images[0], 'rb') as f:
+                img_data = f.read()
+            
+            response = Response(img_data, mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+    except Exception as e:
+        print(f"Error reading archive image: {e}")
+    
+    # If all else fails, create a placeholder image
+    try:
+        # Create a 640x480 placeholder image
+        img = Image.new('RGB', (640, 480), color='black')
+        draw = ImageDraw.Draw(img)
+        
+        # Add text
         try:
-            # Create a 640x480 placeholder image
-            img = Image.new('RGB', (640, 480), color='black')
-            draw = ImageDraw.Draw(img)
-            
-            # Add text
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-            except:
-                font = ImageFont.load_default()
-            
-            text = f"ROVER VISION\nSlot {slot} loading..."
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            
-            x = (640 - text_width) // 2
-            y = (480 - text_height) // 2
-            
-            draw.text((x, y), text, fill='green', font=font)
-            
-            # Convert to bytes
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='JPEG')
-            img_byte_arr.seek(0)
-            
-            return Response(img_byte_arr.getvalue(), mimetype='image/jpeg')
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
         except:
-            return "No crop image available", 404
+            font = ImageFont.load_default()
+        
+        text = f"ROVER VISION\nSlot {slot} loading..."
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        x = (640 - text_width) // 2
+        y = (480 - text_height) // 2
+        
+        draw.text((x, y), text, fill='green', font=font)
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG')
+        img_byte_arr.seek(0)
+        
+        return Response(img_byte_arr.getvalue(), mimetype='image/jpeg')
+    except:
+        return "No crop image available", 404
 
 @app.route('/api/crop/status')
 def get_crop_status():
