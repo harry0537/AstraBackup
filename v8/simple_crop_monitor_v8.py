@@ -453,8 +453,13 @@ class SimpleCropMonitor:
         print(f"  • JPEG quality: 70 (space-optimized)")
         print()
 
-        # Initial capture
-        self.capture_image()
+        # Initial capture to populate all 10 dashboard slots
+        print("Initializing dashboard slots (1-10)...")
+        for i in range(10):
+            self.capture_image()
+            print(f"  • Initialized slot {i+1}/10")
+            time.sleep(0.5)  # Small delay between captures
+        print("✓ All dashboard slots initialized\n")
 
         try:
             consecutive_failures = 0

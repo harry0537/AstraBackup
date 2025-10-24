@@ -596,7 +596,7 @@ def get_crop_image(slot):
             except:
                 font = ImageFont.load_default()
             
-            text = "ROVER VISION\nNo Image Available"
+            text = f"ROVER VISION\nSlot {slot} loading..."
             bbox = draw.textbbox((0, 0), text, font=font)
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
