@@ -266,7 +266,7 @@ DASHBOARD_HTML = '''
                         Rover vision offline - Crop monitor not running
                     </div>
                     <div class="crop-status" id="crop-status">
-                        Rolling buffer: Slot <span id="current-slot">1</span>/10 (updates every 6s)
+                        Rolling buffer: Slot <span id="current-slot">1</span>/10 (cycles every 3s)
                         <br><small><a href="/api/crop/status" target="_blank" style="color: #0ff;">Debug: Check crop status</a></small>
                     </div>
                 </div>
@@ -306,7 +306,7 @@ DASHBOARD_HTML = '''
         
         // Initial load and set up rolling timer
         refreshRoverVision();
-        setInterval(refreshRoverVision, 6000); // Cycle every 6 seconds
+        setInterval(refreshRoverVision, 3000); // Cycle every 3 seconds (faster to see updates)
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
