@@ -266,6 +266,7 @@ DASHBOARD_HTML = '''
                     </div>
                     <div class="crop-status" id="crop-status">
                         Rover vision updates every 5 seconds
+                        <br><small><a href="/api/crop/status" target="_blank" style="color: #0ff;">Debug: Check crop status</a></small>
                     </div>
                 </div>
             </div>
@@ -273,12 +274,19 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Simple reliable refresh - update every 5 seconds
+        // Aggressive refresh to force image updates
         const roverVisionImg = document.getElementById('rover-vision');
         
         function refreshRoverVision() {
-            const timestamp = new Date().getTime();
-            roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
+            // Clear the image first to force reload
+            roverVisionImg.src = '';
+            
+            // Wait a moment then set new src with timestamp
+            setTimeout(() => {
+                const timestamp = new Date().getTime();
+                roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
+                console.log(`Refreshing rover vision at ${new Date().toLocaleTimeString()}`);
+            }, 100);
         }
         
         // Initial load and set up refresh timer
@@ -586,18 +594,23 @@ def get_crop_status():
     """Get crop monitor status"""
     import os
     import json
+    import time
     
     status_file = "/tmp/crop_monitor_v8.json"
     if os.path.exists(status_file):
         try:
             with open(status_file, 'r') as f:
-                return jsonify(json.load(f))
-        except:
-            pass
+                data = json.load(f)
+                # Add file modification time
+                data['status_file_age'] = time.time() - os.path.getmtime(status_file)
+                return jsonify(data)
+        except Exception as e:
+            return jsonify({'error': f'Failed to read status file: {e}'})
     
     # Check if latest image exists
     latest_image_exists = os.path.exists('/tmp/crop_latest.jpg')
     latest_image_size = os.path.getsize('/tmp/crop_latest.jpg') if latest_image_exists else 0
+    latest_image_age = time.time() - os.path.getmtime('/tmp/crop_latest.jpg') if latest_image_exists else 0
     
     return jsonify({
         'timestamp': datetime.now().isoformat(),
@@ -605,6 +618,7 @@ def get_crop_status():
         'image_path': '/tmp/crop_latest.jpg',
         'image_size': latest_image_size,
         'latest_image_exists': latest_image_exists,
+        'latest_image_age_seconds': latest_image_age,
         'status': 'crop_monitor_not_running'
     })
 
