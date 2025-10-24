@@ -275,25 +275,24 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Reliable refresh with proper error handling
+        // Force refresh every 5 seconds with file modification check
         const roverVisionImg = document.getElementById('rover-vision');
+        let lastImageTime = 0;
         
         function refreshRoverVision() {
             const timestamp = new Date().getTime();
             const newSrc = `/api/crop/image?t=${timestamp}`;
             
-            // Only update if the src is different
-            if (roverVisionImg.src !== newSrc) {
-                roverVisionImg.src = newSrc;
-                console.log(`Refreshing rover vision at ${new Date().toLocaleTimeString()}`);
-            }
+            // Always update the src to force refresh
+            roverVisionImg.src = newSrc;
+            console.log(`Forcing rover vision refresh at ${new Date().toLocaleTimeString()}`);
         }
         
         // Handle image load errors
         roverVisionImg.onerror = function() {
             console.log('Rover vision image failed to load');
-            // Try again in 2 seconds
-            setTimeout(refreshRoverVision, 2000);
+            // Try again in 1 second
+            setTimeout(refreshRoverVision, 1000);
         };
         
         // Handle successful image load
@@ -303,7 +302,7 @@ DASHBOARD_HTML = '''
         
         // Initial load and set up refresh timer
         refreshRoverVision();
-        setInterval(refreshRoverVision, 5000); // Refresh every 5 seconds
+        setInterval(refreshRoverVision, 5000); // Force refresh every 5 seconds
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');

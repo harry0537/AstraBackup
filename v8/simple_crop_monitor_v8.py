@@ -370,12 +370,20 @@ class SimpleCropMonitor:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image", end='')
                 return False
 
-            # Also save latest image for dashboard (atomic write)
+            # Also save latest image for dashboard (atomic write with timestamp)
             try:
-                tmp_path = '/tmp/crop_latest.jpg.tmp'
-                out_path = '/tmp/crop_latest.jpg'
+                timestamp = int(time.time())
+                tmp_path = f'/tmp/crop_latest_{timestamp}.jpg.tmp'
+                out_path = f'/tmp/crop_latest_{timestamp}.jpg'
                 cv2.imwrite(tmp_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 os.replace(tmp_path, out_path)
+                
+                # Also create a symlink to the latest image for the API
+                latest_link = '/tmp/crop_latest.jpg'
+                if os.path.exists(latest_link):
+                    os.remove(latest_link)
+                os.symlink(out_path, latest_link)
+                
             except Exception as e:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Failed to save latest image: {e}", end='')
 
