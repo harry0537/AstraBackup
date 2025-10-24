@@ -543,7 +543,12 @@ def get_crop_image():
     
     image_path = "/tmp/crop_latest.jpg"
     if os.path.exists(image_path):
-        return send_file(image_path, mimetype='image/jpeg')
+        # Add cache-busting headers to prevent browser caching
+        response = send_file(image_path, mimetype='image/jpeg')
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     else:
         # Create a placeholder image
         try:
@@ -590,11 +595,17 @@ def get_crop_status():
         except:
             pass
     
+    # Check if latest image exists
+    latest_image_exists = os.path.exists('/tmp/crop_latest.jpg')
+    latest_image_size = os.path.getsize('/tmp/crop_latest.jpg') if latest_image_exists else 0
+    
     return jsonify({
         'timestamp': datetime.now().isoformat(),
         'capture_count': 0,
         'image_path': '/tmp/crop_latest.jpg',
-        'image_size': 0
+        'image_size': latest_image_size,
+        'latest_image_exists': latest_image_exists,
+        'status': 'crop_monitor_not_running'
     })
 
 def read_telemetry_file():

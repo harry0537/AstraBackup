@@ -22,7 +22,7 @@ except ImportError:
 # Configuration
 COMPONENT_ID = 198
 CAPTURE_INTERVAL = 5  # 5 seconds
-MAX_IMAGES = 40  # Maximum number of archived images
+MAX_IMAGES = 10  # Maximum number of archived images
 IMAGE_DIR = "/tmp/crop_archive"  # Directory for archived images
 STATUS_FILE = "/tmp/crop_monitor_v8.json"
 
@@ -385,6 +385,9 @@ class SimpleCropMonitor:
 
             # Count current archived images
             num_archived = len(glob.glob(os.path.join(IMAGE_DIR, "crop_*.jpg")))
+            
+            # Debug output
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Captured image #{self.capture_count} (archived: {num_archived}/{MAX_IMAGES})", end='')
 
             status = {
                 'timestamp': datetime.now().isoformat(),
@@ -429,7 +432,7 @@ class SimpleCropMonitor:
         print("=" * 60)
         print("Simple Crop Monitor V8 - Component 198")
         print("=" * 60)
-        print(f"Capture interval: {CAPTURE_INTERVAL} seconds ({CAPTURE_INTERVAL/3600:.1f} hours)")
+        print(f"Capture interval: {CAPTURE_INTERVAL} seconds")
         print(f"Archive directory: {IMAGE_DIR}")
         print(f"Max archived images: {MAX_IMAGES}")
         print("=" * 60)
@@ -439,7 +442,7 @@ class SimpleCropMonitor:
             return
 
         print("\n✓ Crop monitor operational")
-        print(f"  • Capturing 1 image every {CAPTURE_INTERVAL/3600:.1f} hour(s)")
+        print(f"  • Capturing 1 image every {CAPTURE_INTERVAL} seconds")
         print(f"  • Rolling archive of {MAX_IMAGES} images")
         print(f"  • Images saved to {IMAGE_DIR}")
         print(f"  • JPEG quality: 70 (space-optimized)")
