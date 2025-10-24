@@ -115,8 +115,8 @@ class ComboProximityBridge:
         self.exposure_step = 500.0
         self.last_exposure_update = 0.0
         # Brightness targets in [0..255]
-        self.target_brightness_low = 70
-        self.target_brightness_high = 150
+        self.target_brightness_low = 35   # Reduced by 50% for darker image
+        self.target_brightness_high = 75  # Reduced by 50% for darker image
 
     def adjust_rgb_exposure(self, mean_brightness: float) -> None:
         """Simple adaptive exposure: keep brightness between low/high.
