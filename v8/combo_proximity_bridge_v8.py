@@ -103,6 +103,88 @@ class ComboProximityBridge:
         # RealSense retry settings
         self.realsense_retry_count = 0
         self.max_realsense_retries = 3
+        
+        # RGB exposure control (adaptive manual)
+        self.rgb_sensor = None
+        self.exposure_us = 6000.0
+        self.gain_value = 32.0
+        self.exposure_min = 500.0
+        self.exposure_max = 20000.0
+        self.gain_min = 8.0
+        self.gain_max = 64.0
+        self.exposure_step = 500.0
+        self.last_exposure_update = 0.0
+        # Brightness targets in [0..255]
+        self.target_brightness_low = 70
+        self.target_brightness_high = 150
+
+    def adjust_rgb_exposure(self, mean_brightness: float) -> None:
+        """Simple adaptive exposure: keep brightness between low/high.
+        Adjusts exposure (primary) and gain (secondary) with gentle steps.
+        Safe no-op if sensor/options unavailable."""
+        if not CV2_AVAILABLE or self.rgb_sensor is None:
+            return
+        now = time.time()
+        if now - self.last_exposure_update < 0.4:  # limit update rate
+            return
+        try:
+            if mean_brightness > self.target_brightness_high:
+                # Too bright → reduce exposure, then gain
+                if self.rgb_sensor.supports(rs.option.exposure):
+                    self.exposure_us = max(self.exposure_min, self.exposure_us - self.exposure_step)
+                    self.rgb_sensor.set_option(rs.option.exposure, float(self.exposure_us))
+                if self.rgb_sensor.supports(rs.option.gain):
+                    self.gain_value = max(self.gain_min, self.gain_value - 2.0)
+                    self.rgb_sensor.set_option(rs.option.gain, float(self.gain_value))
+            elif mean_brightness < self.target_brightness_low:
+                # Too dark → increase exposure, then gain
+                if self.rgb_sensor.supports(rs.option.exposure):
+                    self.exposure_us = min(self.exposure_max, self.exposure_us + self.exposure_step)
+                    self.rgb_sensor.set_option(rs.option.exposure, float(self.exposure_us))
+                if self.rgb_sensor.supports(rs.option.gain):
+                    self.gain_value = min(self.gain_max, self.gain_value + 2.0)
+                    self.rgb_sensor.set_option(rs.option.gain, float(self.gain_value))
+            # else inside band → no change
+        except Exception:
+            pass
+        finally:
+            self.last_exposure_update = now
+
+    def configure_color_exposure(self, profile):
+        """Reduce daytime overexposure on RGB stream (manual exposure).
+        Tries to set safe, daylight-friendly values; silently ignores unsupported options."""
+        try:
+            device = profile.get_device()
+            sensors = device.query_sensors()
+            for s in sensors:
+                try:
+                    name = s.get_info(rs.camera_info.name) if hasattr(rs, 'camera_info') else ''
+                except Exception:
+                    name = ''
+                # Prefer the RGB camera but apply to any sensor that supports the options
+                if hasattr(s, 'supports') and (name.lower().find('rgb') != -1 or True):
+                    try:
+                        if s.supports(rs.option.enable_auto_exposure):
+                            s.set_option(rs.option.enable_auto_exposure, 0)  # manual
+                        if s.supports(rs.option.exposure):
+                            # 6000-8000 us is generally good for daylight; start conservative
+                            self.exposure_us = 6000.0
+                            s.set_option(rs.option.exposure, float(self.exposure_us))
+                        if s.supports(rs.option.gain):
+                            self.gain_value = 32.0
+                            s.set_option(rs.option.gain, float(self.gain_value))
+                        if s.supports(rs.option.auto_exposure_priority):
+                            s.set_option(rs.option.auto_exposure_priority, 0.0)
+                        if s.supports(rs.option.backlight_compensation):
+                            s.set_option(rs.option.backlight_compensation, 1.0)
+                        print("  [RGB] Applied manual exposure (6000us, gain 32, BLC on)")
+                        self.rgb_sensor = s
+                        break
+                    except Exception:
+                        continue
+        except Exception:
+            # Non-fatal; continue with defaults
+            pass
 
     def connect_lidar(self):
         """Connect to RPLidar S3 - IMPROVED with retry logic"""
@@ -171,7 +253,10 @@ class ComboProximityBridge:
                     # Enable both depth and color streams
                     config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
                     config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
-                    self.pipeline.start(config)
+                    profile = self.pipeline.start(config)
+
+                    # Configure RGB exposure to avoid day overexposure
+                    self.configure_color_exposure(profile)
 
                     # Wait for camera to stabilize
                     print("  [INIT] Stabilizing camera...")
@@ -388,13 +473,27 @@ class ComboProximityBridge:
                     time.sleep(0.03)
                     continue
 
-                # Save color frame for streaming component
+                # Save color frame for streaming component (atomic write)
                 if color_frame and CV2_AVAILABLE:
                     try:
                         color_image = np.asanyarray(color_frame.get_data())
-                        cv2.imwrite('/tmp/realsense_latest.jpg', color_image, 
-                                   [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    except:
+                        # Adaptive exposure: compute mean brightness on grayscale
+                        try:
+                            gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+                            mean_val = float(np.mean(gray))
+                            self.adjust_rgb_exposure(mean_val)
+                        except Exception:
+                            pass
+                        tmp_path = '/tmp/realsense_latest.jpg.tmp'
+                        out_path = '/tmp/realsense_latest.jpg'
+                        ok = cv2.imwrite(tmp_path, color_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                        if ok:
+                            try:
+                                os.replace(tmp_path, out_path)
+                            except Exception:
+                                # If atomic replace fails, fall back to simple write
+                                cv2.imwrite(out_path, color_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    except Exception:
                         pass  # Silent fail - streaming is optional
 
                 width = depth_frame.get_width()

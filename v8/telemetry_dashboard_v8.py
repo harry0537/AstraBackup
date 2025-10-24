@@ -256,16 +256,16 @@ DASHBOARD_HTML = '''
 
         <div class="rover-vision-panel">
             <div class="panel">
-                <h2>REAL-TIME ROVER VISION (MJPEG STREAM)</h2>
+                <h2>REAL-TIME ROVER VISION</h2>
                 <div class="crop-image-container">
-                    <img id="rover-stream" src="" alt="RealSense Live Stream" 
+                    <img id="rover-vision" src="/api/crop/image" alt="Rover Vision" 
                          style="max-width: 100%; height: auto; border: 1px solid #00ff00;"
-                         onerror="this.style.display='none'; document.getElementById('stream-offline').style.display='block';">
-                    <div id="stream-offline" style="display: none; padding: 20px; text-align: center; color: #ff6600;">
-                        Stream offline - RealSense component not running
+                         onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';">
+                    <div id="vision-offline" style="display: none; padding: 20px; text-align: center; color: #ff6600;">
+                        Rover vision offline - Crop monitor not running
                     </div>
                     <div class="crop-status" id="crop-status">
-                        Live RealSense feed @ ~15 FPS
+                        Rover vision updates every 5 seconds
                     </div>
                 </div>
             </div>
@@ -273,10 +273,16 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Set RealSense stream URL dynamically
-        const streamImg = document.getElementById('rover-stream');
-        const streamUrl = `http://${window.location.hostname}:8082/stream`;
-        streamImg.src = streamUrl;
+        // Auto-refresh rover vision image every 5 seconds
+        const roverVisionImg = document.getElementById('rover-vision');
+        function refreshRoverVision() {
+            const timestamp = new Date().getTime();
+            roverVisionImg.src = `/api/crop/image?t=${timestamp}`;
+        }
+        
+        // Initial load and set up refresh timer
+        refreshRoverVision();
+        setInterval(refreshRoverVision, 5000); // Refresh every 5 seconds
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');

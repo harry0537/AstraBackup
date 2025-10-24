@@ -21,7 +21,7 @@ except ImportError:
 
 # Configuration
 COMPONENT_ID = 198
-CAPTURE_INTERVAL = 3600  # 1 hour (3600 seconds)
+CAPTURE_INTERVAL = 5  # 5 seconds
 MAX_IMAGES = 40  # Maximum number of archived images
 IMAGE_DIR = "/tmp/crop_archive"  # Directory for archived images
 STATUS_FILE = "/tmp/crop_monitor_v8.json"
@@ -369,6 +369,15 @@ class SimpleCropMonitor:
             if not success:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image", end='')
                 return False
+
+            # Also save latest image for dashboard (atomic write)
+            try:
+                tmp_path = '/tmp/crop_latest.jpg.tmp'
+                out_path = '/tmp/crop_latest.jpg'
+                cv2.imwrite(tmp_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                os.replace(tmp_path, out_path)
+            except Exception as e:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ⚠ Failed to save latest image: {e}", end='')
 
             # Update status
             self.capture_count += 1

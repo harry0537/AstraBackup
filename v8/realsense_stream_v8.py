@@ -40,63 +40,56 @@ class RealSenseStreamer:
     
     def capture_thread(self):
         """Background thread to read shared frames from proximity bridge"""
+        backoff = 0.1
         while self.running:
             try:
                 # Check if shared image file exists and has been updated
                 if os.path.exists(SHARED_IMAGE):
                     current_modified = os.path.getmtime(SHARED_IMAGE)
-                    
+
                     # Only read if file has been updated
                     if current_modified != self.last_modified:
-                        frame = cv2.imread(SHARED_IMAGE)
-                        
+                        # Read bytes to avoid partial read during replace
+                        with open(SHARED_IMAGE, 'rb') as f:
+                            data = f.read()
+                        # Decode JPEG from memory buffer (more robust than cv2.imread while file is replaced)
+                        npbuf = np.frombuffer(data, dtype=np.uint8)
+                        frame = cv2.imdecode(npbuf, cv2.IMREAD_COLOR)
+
                         if frame is not None:
                             with self.frame_lock:
                                 self.latest_frame = frame
                                 self.frame_count += 1
                                 self.last_modified = current_modified
-                
-                time.sleep(1.0 / STREAM_FPS)  # Control read rate
-                        
-            except Exception as e:
-                # Silent fail for read errors
-                time.sleep(0.1)
+                        # Reset backoff on success
+                        backoff = 0.1
+
+                time.sleep(1.0 / STREAM_FPS)
+
+            except Exception:
+                # Exponential backoff on errors to avoid tight loop
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 2.0)
                 
     def generate_mjpeg(self):
-        """Generate MJPEG stream"""
+        """Generate MJPEG stream from the latest decoded frame (robust)."""
         while self.running:
             with self.frame_lock:
                 if self.latest_frame is not None:
-                    frame = self.latest_frame.copy()
+                    frame = self.latest_frame
                 else:
-                    # Create placeholder frame
+                    # Placeholder frame while waiting for first image
                     frame = np.zeros((480, 640, 3), dtype=np.uint8)
                     cv2.putText(frame, "Waiting for proximity bridge...", (100, 240),
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            
-            # Frame is already JPEG compressed, just read and send
-            if os.path.exists(SHARED_IMAGE):
-                try:
-                    with open(SHARED_IMAGE, 'rb') as f:
-                        frame_bytes = f.read()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                except:
-                    # Fallback to encoded frame if file read fails
-                    ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    if ret:
-                        frame_bytes = buffer.tobytes()
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            else:
-                # No shared image available yet
-                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if ret:
-                    frame_bytes = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            
-            # Control frame rate
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+            # Encode current frame to JPEG
+            ok, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if ok:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
             time.sleep(1.0 / STREAM_FPS)
     
     def run(self):
