@@ -69,22 +69,80 @@ DASHBOARD_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0f1115;
+            --bg-elev: #151922;
+            --card: #181c26;
+            --card-border: rgba(255,255,255,0.06);
+            --text: #e6eaf2;
+            --muted: #98a2b3;
+            --accent: #6ee7b7; /* mint */
+            --accent-strong: #34d399;
+            --ok: #22c55e;
+            --warn: #f59e0b;
+            --error: #ef4444;
+            --chip: rgba(255,255,255,0.06);
+            --chip-border: rgba(255,255,255,0.08);
+            --shadow: 0 8px 24px rgba(0,0,0,0.35);
+            --radius: 14px;
+            --radius-sm: 10px;
+        }
+        /* Sport variant (inspired by red cluster rings) */
+        html[data-theme="sport"] {
+            --accent: #fb7185; /* rose */
+            --accent-strong: #f43f5e;
+        }
         body {
-            font-family: 'Courier New', monospace;
-            background: #0a0a0a;
-            color: #00ff00;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: 
+                        radial-gradient(1200px 600px at 20% -10%, rgba(52, 211, 153, 0.08), transparent 60%),
+                        radial-gradient(1400px 700px at 120% 10%, rgba(99, 102, 241, 0.06), transparent 60%),
+                        repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 24px),
+                        repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 24px),
+                        var(--bg);
+            color: var(--text);
+            padding: 24px;
         }
         .header {
-            text-align: center;
-            padding: 20px;
-            border-bottom: 2px solid #00ff00;
-            margin-bottom: 20px;
+            max-width: 1200px;
+            margin: 0 auto 24px auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
         }
         .header h1 {
-            font-size: 24px;
-            text-shadow: 0 0 10px #00ff00;
+            font-size: 18px;
+            letter-spacing: 0.08em;
+            font-weight: 700;
         }
+        #timestamp {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            border: 1px solid var(--card-border);
+        }
+        .actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .btn {
+            padding: 6px 10px;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -92,6 +150,36 @@ DASHBOARD_HTML = '''
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
         }
+        /* Indicator ribbon */
+        .ribbon {
+            max-width: 1200px;
+            margin: 0 auto 16px auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+        .light {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow);
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.06) inset, 0 0 12px rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.08);
+        }
+        .on-ok { background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.8); animation: breathe 2.6s ease-in-out infinite; }
+        .on-warn { background: #f59e0b; box-shadow: 0 0 12px rgba(245,158,11,0.8); animation: pulse 1.4s ease-in-out infinite; }
+        .on-err { background: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.8); animation: pulse 0.9s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { transform: scale(0.95); } 50% { transform: scale(1.15); } }
+        @keyframes breathe { 0%,100% { filter: saturate(0.9); } 50% { filter: saturate(1.2); } }
         .rover-vision-container {
             grid-column: 1 / -1;
             margin-top: 20px;
@@ -117,24 +205,53 @@ DASHBOARD_HTML = '''
             height: 100%;
         }
         .panel {
-            background: #1a1a1a;
-            border: 1px solid #00ff00;
-            border-radius: 5px;
-            padding: 15px;
-            box-shadow: 0 0 20px rgba(0,255,0,0.1);
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            padding: 18px;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        .panel:before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(120deg, rgba(255,255,255,0.06), transparent 40%, var(--accent) 50%, transparent 60%, rgba(255,255,255,0.06));
+            filter: blur(8px);
+            opacity: 0.35;
+            pointer-events: none;
         }
         .panel h2 {
-            font-size: 16px;
-            margin-bottom: 10px;
-            color: #00ff00;
-            text-shadow: 0 0 5px #00ff00;
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.06em;
         }
         .radar-container {
             position: relative;
             width: 280px;
             height: 280px;
             margin: 0 auto;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 60%, transparent 100%);
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
         }
+        .radar-container:after {
+            content: "";
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.0) 260deg, var(--accent) 300deg, transparent 360deg);
+            animation: spin 6s linear infinite;
+            filter: blur(1px);
+            opacity: 0.35;
+            pointer-events: none;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .radar {
             width: 100%;
             height: 100%;
@@ -146,14 +263,19 @@ DASHBOARD_HTML = '''
             font-size: 14px;
         }
         .status-label {
-            color: #888;
+            color: var(--muted);
         }
         .status-value {
             text-align: right;
+            justify-self: end;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
         }
-        .status-ok { color: #00ff00; }
-        .status-warning { color: #ffff00; }
-        .status-error { color: #ff0000; }
+        .status-ok { color: var(--ok); background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.18); }
+        .status-warning { color: var(--warn); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.18); }
+        .status-error { color: var(--error); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.18); }
         .proximity-values {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -162,21 +284,23 @@ DASHBOARD_HTML = '''
         }
         .proximity-item {
             text-align: center;
-            padding: 5px;
-            background: #2a2a2a;
-            border-radius: 3px;
+            padding: 10px 8px;
+            background: var(--chip);
+            border: 1px solid var(--chip-border);
+            border-radius: var(--radius-sm);
         }
         .proximity-label {
             font-size: 10px;
-            color: #888;
+            color: var(--muted);
+            letter-spacing: 0.06em;
         }
         .proximity-value {
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 700;
         }
-        .safe { color: #00ff00; }
-        .warning { color: #ffff00; }
-        .danger { color: #ff0000; }
+        .safe { color: var(--ok); }
+        .warning { color: var(--warn); }
+        .danger { color: var(--error); }
         .crop-image-container {
             text-align: center;
             margin-top: 10px;
@@ -185,19 +309,19 @@ DASHBOARD_HTML = '''
             max-width: 100%;
             height: auto;
             max-height: 500px;
-            border: 2px solid #00ff00;
-            border-radius: 8px;
-            box-shadow: 0 0 20px rgba(0,255,0,0.5);
-            transition: all 0.3s ease;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
         }
         .crop-image-container img:hover {
-            box-shadow: 0 0 30px rgba(0,255,0,0.8);
-            transform: scale(1.02);
+            box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+            transform: scale(1.015);
         }
         .crop-status {
             margin-top: 15px;
             font-size: 14px;
-            color: #888;
+            color: var(--muted);
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 10px;
@@ -206,16 +330,46 @@ DASHBOARD_HTML = '''
             padding: 25px;
         }
         .rover-vision-container h2 {
-            font-size: 20px;
+            font-size: 16px;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
+        }
+        .alert-offline {
+            display: none;
+            padding: 14px 16px;
+            margin-top: 8px;
+            text-align: center;
+            color: #f59e0b;
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.28);
+            border-radius: var(--radius-sm);
+        }
+        @media (max-width: 980px) {
+            .vision-row { grid-template-columns: 1fr; }
+            .proximity-panel, .rover-vision-panel { grid-column: 1; }
+            .radar-container { width: 240px; height: 240px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>PROJECT ASTRA NZ - TELEMETRY DASHBOARD V8</h1>
-        <p id="timestamp">--:--:--</p>
+        <h1>PROJECT ASTRA NZ — TELEMETRY DASHBOARD V8</h1>
+        <div class="actions">
+            <span class="btn" id="metric-uptime" title="Uptime">Uptime: --</span>
+            <span class="btn" id="metric-fps" title="RealSense FPS">FPS: --</span>
+            <span class="btn" id="metric-msg" title="Messages Sent">Msgs: --</span>
+            <button class="btn" id="theme-toggle" title="Toggle theme">Classic/Sport</button>
+            <p id="timestamp">--:--:--</p>
+        </div>
+    </div>
+
+    <div class="ribbon" id="status-ribbon">
+        <div class="light"><span class="dot" id="light-proximity"></span> Proximity</div>
+        <div class="light"><span class="dot" id="light-relay"></span> Data Relay</div>
+        <div class="light"><span class="dot" id="light-crop"></span> Crop Monitor</div>
+        <div class="light"><span class="dot" id="light-lidar"></span> RPLidar</div>
+        <div class="light"><span class="dot" id="light-realsense"></span> RealSense</div>
+        <div class="light"><span class="dot" id="light-pixhawk"></span> Pixhawk</div>
     </div>
 
     <div class="container">
@@ -259,15 +413,14 @@ DASHBOARD_HTML = '''
                 <h2>REAL-TIME ROVER VISION</h2>
                 <div class="crop-image-container">
                     <img id="rover-vision" src="/api/crop/image" alt="Rover Vision" 
-                         style="max-width: 100%; height: auto; border: 1px solid #00ff00;"
                          onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
                          onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
-                    <div id="vision-offline" style="display: none; padding: 20px; text-align: center; color: #ff6600;">
+                    <div id="vision-offline" class="alert-offline">
                         Rover vision offline - Crop monitor not running
                     </div>
                     <div class="crop-status" id="crop-status">
                         Rolling buffer: Slot <span id="current-slot">1</span>/10 (cycles every 3s)
-                        <br><small><a href="/api/crop/status" target="_blank" style="color: #0ff;">Debug: Check crop status</a></small>
+                        <br><small><a href="/api/crop/status" target="_blank" style="color: var(--accent); text-decoration: none;">Debug: Check crop status</a></small>
                     </div>
                 </div>
             </div>
@@ -347,7 +500,7 @@ DASHBOARD_HTML = '''
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw grid circles
-            ctx.strokeStyle = '#003300';
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.18)';
             ctx.lineWidth = 1;
             for (let r = 0.25; r <= 1; r += 0.25) {
                 ctx.beginPath();
@@ -355,12 +508,12 @@ DASHBOARD_HTML = '''
                 ctx.stroke();
 
                 // Distance labels
-                ctx.fillStyle = '#004400';
-                ctx.font = '10px monospace';
+                ctx.fillStyle = 'rgba(230, 234, 242, 0.5)';
+                ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
                 ctx.fillText(`${Math.round(r * 25)}m`, currentCenterX + 5, currentCenterY - currentMaxRadius * r + 10);
             }
 
-            // Draw sector lines
+            // Draw sector lines / ticks
             for (let angle of sectorAngles) {
                 const rad = (angle - 90) * Math.PI / 180;
                 ctx.beginPath();
@@ -369,6 +522,16 @@ DASHBOARD_HTML = '''
                     currentCenterX + currentMaxRadius * Math.cos(rad),
                     currentCenterY + currentMaxRadius * Math.sin(rad)
                 );
+                ctx.stroke();
+            }
+            // Minor ticks every 15°
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.12)';
+            for (let a = -180; a < 180; a += 15) {
+                const rad = (a - 90) * Math.PI / 180;
+                const inner = currentMaxRadius - 8;
+                ctx.beginPath();
+                ctx.moveTo(currentCenterX + inner * Math.cos(rad), currentCenterY + inner * Math.sin(rad));
+                ctx.lineTo(currentCenterX + currentMaxRadius * Math.cos(rad), currentCenterY + currentMaxRadius * Math.sin(rad));
                 ctx.stroke();
             }
 
@@ -386,11 +549,11 @@ DASHBOARD_HTML = '''
                 // Color based on distance
                 let color;
                 if (distance < 1) {
-                    color = 'rgba(255, 0, 0, 0.7)'; // Red for < 1m
+                    color = 'rgba(239, 68, 68, 0.65)'; // softer red
                 } else if (distance < 3) {
-                    color = 'rgba(255, 255, 0, 0.5)'; // Yellow for < 3m
+                    color = 'rgba(245, 158, 11, 0.50)'; // amber
                 } else {
-                    color = 'rgba(0, 255, 0, 0.3)'; // Green for > 3m
+                    color = 'rgba(52, 211, 153, 0.30)'; // mint
                 }
 
                 // Draw sector arc
@@ -404,14 +567,14 @@ DASHBOARD_HTML = '''
                 if (distance < 25) {
                     const textX = currentCenterX + (pixelDist + 15) * Math.cos(centerAngle);
                     const textY = currentCenterY + (pixelDist + 15) * Math.sin(centerAngle);
-                    ctx.fillStyle = '#00ff00';
-                    ctx.font = 'bold 12px monospace';
+                    ctx.fillStyle = 'rgba(230, 234, 242, 0.85)';
+                    ctx.font = '600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
                     ctx.fillText(`${distance.toFixed(1)}m`, textX - 15, textY + 3);
                 }
             }
 
             // Draw center point
-            ctx.fillStyle = '#00ff00';
+            ctx.fillStyle = 'rgba(110, 231, 183, 0.9)';
             ctx.beginPath();
             ctx.arc(currentCenterX, currentCenterY, 3, 0, Math.PI * 2);
             ctx.fill();
@@ -428,6 +591,16 @@ DASHBOARD_HTML = '''
                 `;
             }).join('');
             document.getElementById('proximity-values').innerHTML = valuesHtml;
+        }
+
+        // Indicator helpers
+        function setLight(id, state) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.remove('on-ok','on-warn','on-err');
+            if (state === 'ok') el.classList.add('on-ok');
+            else if (state === 'warn') el.classList.add('on-warn');
+            else if (state === 'err') el.classList.add('on-err');
         }
 
         function updateStatus(elementId, data) {
@@ -506,6 +679,16 @@ DASHBOARD_HTML = '''
                 updateStatus('sensor-health', data.sensor_health);
                 updateStatus('statistics', data.statistics);
                 
+                // Update ribbon lights
+                const sys = data.system_status || {};
+                const sen = data.sensor_health || {};
+                setLight('light-proximity', sys.proximity_bridge === 'RUNNING' ? 'ok' : sys.proximity_bridge === 'STOPPED' ? 'err' : 'warn');
+                setLight('light-relay', sys.data_relay === 'RUNNING' ? 'ok' : 'warn');
+                setLight('light-crop', sys.crop_monitor === 'RUNNING' ? 'ok' : sys.crop_monitor === 'STOPPED' ? 'err' : 'warn');
+                setLight('light-lidar', sen.rplidar === 'Good' ? 'ok' : sen.rplidar === 'Warning' ? 'warn' : 'err');
+                setLight('light-realsense', sen.realsense === 'Connected' ? 'ok' : 'err');
+                setLight('light-pixhawk', sen.pixhawk === 'Connected' ? 'ok' : 'warn');
+
                 // Update crop monitor
                 if (data.crop_monitor) {
                     updateCropMonitor(data.crop_monitor);
@@ -514,6 +697,16 @@ DASHBOARD_HTML = '''
                 // Update timestamp
                 document.getElementById('timestamp').textContent =
                     new Date().toLocaleTimeString();
+                
+                // Update header metrics
+                const stats = data.statistics || {};
+                const uptimeSecs = Number(stats.uptime) || 0;
+                const h = Math.floor(uptimeSecs / 3600).toString().padStart(2,'0');
+                const m = Math.floor((uptimeSecs % 3600)/60).toString().padStart(2,'0');
+                const s = Math.floor(uptimeSecs % 60).toString().padStart(2,'0');
+                document.getElementById('metric-uptime').textContent = `Uptime: ${h}:${m}:${s}`;
+                document.getElementById('metric-fps').textContent = `FPS: ${stats.realsense_fps || 0}`;
+                document.getElementById('metric-msg').textContent = `Msgs: ${stats.messages_sent || 0}`;
             } catch (error) {
                 console.error('Failed to update dashboard:', error);
             }
@@ -524,6 +717,18 @@ DASHBOARD_HTML = '''
 
         // Update every 1 second
         setInterval(updateDashboard, 1000);
+
+        // Theme toggle
+        const themeBtn = document.getElementById('theme-toggle');
+        function toggleTheme(){
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'sport' ? '' : 'sport';
+            if (next) document.documentElement.setAttribute('data-theme', next);
+            else document.documentElement.removeAttribute('data-theme');
+        }
+        themeBtn.addEventListener('click', toggleTheme);
+        // Keyboard shortcut: press "t" to toggle theme
+        window.addEventListener('keydown', (e) => { if ((e.key||'').toLowerCase() === 't') toggleTheme(); });
     </script>
 </body>
 </html>
