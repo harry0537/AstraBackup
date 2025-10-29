@@ -1005,8 +1005,6 @@ def get_crop_latest():
 
 def mjpeg_generator(shared_image_path: str):
     import time
-    import numpy as np
-    import cv2
     last_mtime = 0
     while True:
         try:
@@ -1027,8 +1025,11 @@ def mjpeg_generator(shared_image_path: str):
             frame = None
 
         if frame is not None:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            try:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            except Exception:
+                pass
         time.sleep(0.066)  # ~15 fps
 
 @app.route('/api/stream')

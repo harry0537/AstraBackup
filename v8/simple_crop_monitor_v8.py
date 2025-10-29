@@ -162,8 +162,11 @@ class SimpleCropMonitor:
         print("=" * 60)
 
         if not self.check_source_available():
-            print("✗ Cannot operate without image source")
-            return
+            print("✗ Image source not available yet - will keep waiting and retrying...")
+            # Keep waiting until source appears instead of exiting
+            while not os.path.exists(SOURCE_IMAGE):
+                time.sleep(1)
+            print("✓ Source image detected, continuing...")
 
         print("\n✓ Crop monitor operational")
         print(f"  • Using images from Proximity Bridge")
