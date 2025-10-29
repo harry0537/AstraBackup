@@ -8,6 +8,7 @@ import json
 import time
 import threading
 import os
+import socket
 from datetime import datetime
 from flask import Flask, render_template_string, jsonify
 # Make numpy optional; dashboard should not crash if it's missing
@@ -1076,12 +1077,22 @@ def crop_gallery():
 @app.route('/api/crop/archive/<path:filename>')
 def serve_archive_file(filename):
     """Serve a specific archived image safely from /tmp/crop_archive"""
-    from flask import send_file, abort
+    from flask import send_file, abort, Response
     safe_dir = '/tmp/crop_archive'
     full_path = os.path.join(safe_dir, os.path.basename(filename))
     if not os.path.exists(full_path):
         return abort(404)
-    return send_file(full_path, mimetype='image/jpeg', cache_timeout=0)
+    try:
+        with open(full_path, 'rb') as f:
+            data = f.read()
+        resp = Response(data, mimetype='image/jpeg')
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
+    except Exception as e:
+        print(f"Error serving archive file: {e}")
+        return abort(404)
 
 @app.route('/api/crop/list')
 def crop_list():
@@ -1285,13 +1296,25 @@ if __name__ == '__main__':
 
     data_thread.start()
 
+    # Choose an available port (prefer 8081)
+    preferred_port = int(os.environ.get('ASTRA_DASHBOARD_PORT', '8081'))
+    port = preferred_port
+    for _ in range(5):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(('0.0.0.0', port)) != 0:
+                break
+        port += 1
+
     # Start Flask server
     print("\n" + "="*50)
     print("PROJECT ASTRA NZ - TELEMETRY DASHBOARD V8")
     print("="*50)
-    print(f"Dashboard (Local): http://0.0.0.0:8081")
-    print(f"Dashboard (Network): http://172.25.11.86:8081")
-    print(f"API Endpoint: http://0.0.0.0:8081/api/telemetry")
+    print(f"Dashboard (Local): http://0.0.0.0:{port}")
+    print(f"API Endpoint: http://0.0.0.0:{port}/api/telemetry")
     print("="*50 + "\n")
 
-    app.run(host='0.0.0.0', port=8081, debug=False)
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except OSError as e:
+        print(f"[ERROR] Failed to start server: {e}")
