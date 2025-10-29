@@ -5,8 +5,13 @@ Uses images from Proximity Bridge - No camera conflict
 Component 198 - Image archive with rolling dashboard buffer
 """
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except Exception as e:
+    CV2_AVAILABLE = False
+    print(f"[ERROR] OpenCV not available: {e}")
 import time
 import os
 import glob
@@ -70,10 +75,20 @@ class SimpleCropMonitor:
         if not os.path.exists(SOURCE_IMAGE):
             print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Source image not available", end='')
             return False
+        if not CV2_AVAILABLE:
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ OpenCV not installed", end='')
+            return False
 
         try:
-            # Read image from proximity bridge
-            image = cv2.imread(SOURCE_IMAGE)
+            # Read image from proximity bridge robustly to avoid partial reads
+            # when the producer replaces the file while we're reading it.
+            try:
+                with open(SOURCE_IMAGE, 'rb') as f:
+                    data = f.read()
+                npbuf = np.frombuffer(data, dtype=np.uint8)
+                image = cv2.imdecode(npbuf, cv2.IMREAD_COLOR)
+            except Exception:
+                image = cv2.imread(SOURCE_IMAGE)
             if image is None or image.size == 0:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Invalid image data", end='')
                 return False
@@ -82,11 +97,15 @@ class SimpleCropMonitor:
             self.manage_image_archive()
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             archive_path = os.path.join(IMAGE_DIR, f"crop_{timestamp}.jpg")
-            cv2.imwrite(archive_path, image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            ok_archive = cv2.imwrite(archive_path, image, [cv2.IMWRITE_JPEG_QUALITY, 70])
 
             # 2. Save to dashboard rolling buffer (1-10)
             dashboard_path = os.path.join(DASHBOARD_DIR, f"{self.current_slot}.jpg")
-            cv2.imwrite(dashboard_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            ok_dash = cv2.imwrite(dashboard_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+            if not ok_archive or not ok_dash:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image(s)", end='')
+                return False
             
             # Update status
             self.capture_count += 1
@@ -101,11 +120,17 @@ class SimpleCropMonitor:
             print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Image #{self.capture_count} → slot {next_slot} (archive: {num_archived}/{MAX_IMAGES})", end='')
 
             # Write status file
+            # Compute sizes safely
+            try:
+                archive_size = os.path.getsize(archive_path)
+            except Exception:
+                archive_size = 0
+
             status = {
                 'timestamp': datetime.now().isoformat(),
                 'capture_count': self.capture_count,
                 'latest_image': archive_path,
-                'image_size': os.path.getsize(archive_path),
+                'image_size': archive_size,
                 'total_archived': num_archived,
                 'archive_dir': IMAGE_DIR,
                 'latest_image_timestamp': time.time(),

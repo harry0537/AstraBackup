@@ -198,7 +198,9 @@ DASHBOARD_HTML = '''
         }
         .proximity-panel .radar-container {
             width: 100%;
-            height: 400px;
+            max-width: 420px;
+            aspect-ratio: 1 / 1;
+            height: auto;
         }
         .proximity-panel .radar {
             width: 100%;
@@ -256,6 +258,18 @@ DASHBOARD_HTML = '''
             width: 100%;
             height: 100%;
         }
+        .env-container {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            aspect-ratio: 1 / 1;
+            height: auto;
+            margin: 16px auto 0 auto;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.03), transparent 70%);
+        }
+        .envmap { width: 100%; height: 100%; }
         .status-grid {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -402,6 +416,9 @@ DASHBOARD_HTML = '''
                 <div class="radar-container">
                     <canvas id="radar" class="radar"></canvas>
                 </div>
+                <div class="env-container">
+                    <canvas id="envmap" class="envmap"></canvas>
+                </div>
                 <div class="proximity-values" id="proximity-values">
                     <!-- Populated by JavaScript -->
                 </div>
@@ -463,20 +480,29 @@ DASHBOARD_HTML = '''
         
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
+        const envCanvas = document.getElementById('envmap');
+        const envCtx = envCanvas.getContext('2d');
         
         // Make radar bigger to fit the larger container
         function resizeRadar() {
             const container = canvas.parentElement;
-            const size = Math.min(container.clientWidth - 40, container.clientHeight - 100);
+            const size = Math.min(container.clientWidth, 420);
             canvas.width = size;
             canvas.height = size;
+        }
+        function resizeEnv() {
+            const container = envCanvas.parentElement;
+            const size = Math.min(container.clientWidth, 420);
+            envCanvas.width = size;
+            envCanvas.height = size;
         }
         
         // Initial resize
         resizeRadar();
+        resizeEnv();
         
         // Resize on window resize
-        window.addEventListener('resize', resizeRadar);
+        window.addEventListener('resize', () => { resizeRadar(); resizeEnv(); });
         
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
@@ -591,6 +617,47 @@ DASHBOARD_HTML = '''
                 `;
             }).join('');
             document.getElementById('proximity-values').innerHTML = valuesHtml;
+        }
+
+        function drawEnvironment(distances) {
+            const w = envCanvas.width;
+            const h = envCanvas.height;
+            const cx = w / 2; const cy = h / 2;
+            const maxR = Math.min(w, h) / 2 - 14;
+            envCtx.clearRect(0, 0, w, h);
+            // grid
+            envCtx.strokeStyle = 'rgba(110, 231, 183, 0.16)';
+            envCtx.lineWidth = 1;
+            for (let r = 0.25; r <= 1; r += 0.25) {
+                envCtx.beginPath();
+                envCtx.arc(cx, cy, maxR * r, 0, Math.PI * 2);
+                envCtx.stroke();
+            }
+            // axes
+            envCtx.beginPath();
+            envCtx.moveTo(cx - maxR, cy);
+            envCtx.lineTo(cx + maxR, cy);
+            envCtx.moveTo(cx, cy - maxR);
+            envCtx.lineTo(cx, cy + maxR);
+            envCtx.stroke();
+            // plot each sector point
+            for (let i = 0; i < 8; i++) {
+                const distM = Math.min(distances[i] / 100, 25);
+                const n = Math.min(distM / 25, 1);
+                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
+                const rad = (angleDeg - 90) * Math.PI / 180;
+                const r = n * maxR;
+                const x = cx + r * Math.cos(rad);
+                const y = cy + r * Math.sin(rad);
+                const color = distM < 1 ? '#ef4444' : distM < 3 ? '#f59e0b' : '#34d399';
+                envCtx.fillStyle = color;
+                envCtx.beginPath();
+                envCtx.arc(x, y, 5, 0, Math.PI * 2);
+                envCtx.fill();
+            }
+            // center
+            envCtx.fillStyle = 'rgba(230, 234, 242, 0.9)';
+            envCtx.beginPath(); envCtx.arc(cx, cy, 3, 0, Math.PI * 2); envCtx.fill();
         }
 
         // Indicator helpers
