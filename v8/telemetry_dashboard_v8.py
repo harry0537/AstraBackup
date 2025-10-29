@@ -10,7 +10,11 @@ import threading
 import os
 from datetime import datetime
 from flask import Flask, render_template_string, jsonify
-import numpy as np
+# Make numpy optional; dashboard should not crash if it's missing
+try:
+    import numpy as np
+except Exception:
+    np = None
 
 # FIX BUG #11: Add try/except for optional flask-cors dependency
 try:
