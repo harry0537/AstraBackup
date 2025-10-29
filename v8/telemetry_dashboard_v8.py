@@ -278,6 +278,17 @@ DASHBOARD_HTML = '''
             background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.03), transparent 70%);
         }
         .envmap { width: 100%; height: 100%; }
+        .gallery-grid { display: none; margin-top: 12px; }
+        .gallery-grid.active { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+        .thumb {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 6px;
+            text-align: center;
+        }
+        .thumb img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; }
+        .thumb .cap { color: var(--muted); font-size: 11px; margin-top: 4px; }
         .status-grid {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -363,6 +374,13 @@ DASHBOARD_HTML = '''
             text-align: center;
             margin-bottom: 16px;
         }
+        .vision-toolbar {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        .btn.small { padding: 4px 8px; font-size: 12px; }
         .alert-offline {
             display: none;
             padding: 14px 16px;
@@ -445,7 +463,16 @@ DASHBOARD_HTML = '''
             <div class="panel">
                 <h2>REAL-TIME ROVER VISION</h2>
                 <div class="crop-image-container">
-                    <img id="rover-vision" src="/api/crop/image/1" alt="Rover Vision" 
+                    <div class="vision-toolbar">
+                        <button class="btn small" id="btn-live">Live</button>
+                        <button class="btn small" id="btn-snap">Snapshots</button>
+                        <button class="btn small" id="btn-gallery">Gallery</button>
+                        <a class="btn small" href="/api/crop/gallery" target="_blank" style="text-decoration:none;">Open in Tab</a>
+                    </div>
+                    <img id="live-stream" src="/api/stream" alt="Live Stream" style="display:none"
+                         onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
+                         onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
+                    <img id="rover-vision" src="/api/crop/image/1" alt="Rover Vision"
                          onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
                          onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
                     <div id="vision-offline" class="alert-offline">
@@ -459,6 +486,7 @@ DASHBOARD_HTML = '''
                             <a href="/api/crop/gallery" target="_blank" class="btn" style="text-decoration: none;">Open Gallery</a>
                         </small>
                     </div>
+                    <div id="inline-gallery" class="gallery-grid"></div>
                 </div>
             </div>
         </div>
@@ -806,6 +834,41 @@ DASHBOARD_HTML = '''
         // Update every 1 second
         setInterval(updateDashboard, 1000);
 
+        // Vision toggle logic
+        const btnLive = document.getElementById('btn-live');
+        const btnSnap = document.getElementById('btn-snap');
+        const btnGallery = document.getElementById('btn-gallery');
+        const imgLive = document.getElementById('live-stream');
+        const imgSnap = document.getElementById('rover-vision');
+        const galleryEl = document.getElementById('inline-gallery');
+        function showLive() { imgLive.style.display = 'block'; imgSnap.style.display = 'none'; }
+        function showSnap() { imgLive.style.display = 'none'; imgSnap.style.display = 'block'; }
+        btnLive.addEventListener('click', showLive);
+        btnSnap.addEventListener('click', showSnap);
+        btnGallery.addEventListener('click', async () => {
+            if (galleryEl.classList.contains('active')) {
+                galleryEl.classList.remove('active');
+                return;
+            }
+            try {
+                const res = await fetch('/api/crop/list');
+                const list = await res.json();
+                const html = list.map(item => `
+                    <div class="thumb">
+                        <a href="${item.url}" target="_blank"><img src="${item.url}" loading="lazy" /></a>
+                        <div class="cap">${item.time}</div>
+                    </div>
+                `).join('');
+                galleryEl.innerHTML = html || '<div class="cap">No images yet.</div>';
+                galleryEl.classList.add('active');
+            } catch (e) {
+                galleryEl.innerHTML = '<div class="cap">Failed to load gallery.</div>';
+                galleryEl.classList.add('active');
+            }
+        });
+        // Default to live stream first
+        showLive();
+
         // Theme toggle
         const themeBtn = document.getElementById('theme-toggle');
         function toggleTheme(){
@@ -940,15 +1003,59 @@ def get_crop_latest():
         print(f"Error serving latest crop image: {e}")
     return "No latest image", 404
 
+def mjpeg_generator(shared_image_path: str):
+    import time
+    import numpy as np
+    import cv2
+    last_mtime = 0
+    while True:
+        try:
+            if os.path.exists(shared_image_path):
+                mtime = os.path.getmtime(shared_image_path)
+                if mtime != last_mtime:
+                    # Read bytes and encode to ensure robust streaming
+                    with open(shared_image_path, 'rb') as f:
+                        data = f.read()
+                    # Send as-is if already JPEG
+                    frame = data
+                    last_mtime = mtime
+                else:
+                    frame = None
+            else:
+                frame = None
+        except Exception:
+            frame = None
+
+        if frame is not None:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        time.sleep(0.066)  # ~15 fps
+
+@app.route('/api/stream')
+def api_stream():
+    """MJPEG stream directly from shared RealSense frame without camera access."""
+    from flask import Response
+    shared = '/tmp/realsense_latest.jpg'
+    if not os.path.exists(shared):
+        return "No stream source", 404
+    return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
+
 @app.route('/api/crop/gallery')
 def crop_gallery():
     """Simple gallery page to browse crop images"""
     import glob
-    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
     items = []
-    for fp in files[:200]:
+    for fp in files[:300]:
         name = os.path.basename(fp)
-        items.append(f'<a href="/api/crop/archive/{name}" target="_blank"><img src="/api/crop/archive/{name}" style="width:220px; height:auto; border:1px solid #333; border-radius:8px; margin:8px;" loading="lazy"></a>')
+        ts = os.path.getmtime(fp)
+        tstr = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+        items.append(f'<div style="display:inline-block; margin:8px; text-align:center;">\
+            <a href="/api/crop/archive/{name}" target="_blank">\
+              <img src="/api/crop/archive/{name}" style="width:220px; height:140px; object-fit:cover; border:1px solid #333; border-radius:8px; display:block;">\
+            </a>\
+            <div style="color:#98a2b3; font: 12px system-ui; margin-top:4px;">{tstr}</div>\
+        </div>')
     grid = ''.join(items) if items else '<p>No images yet.</p>'
     return f"""
     <html>
@@ -970,6 +1077,22 @@ def serve_archive_file(filename):
     if not os.path.exists(full_path):
         return abort(404)
     return send_file(full_path, mimetype='image/jpeg', cache_timeout=0)
+
+@app.route('/api/crop/list')
+def crop_list():
+    """Return JSON list of archived images with timestamps"""
+    import glob
+    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
+    out = []
+    for fp in files[:300]:
+        ts = os.path.getmtime(fp)
+        out.append({
+            'name': os.path.basename(fp),
+            'url': f"/api/crop/archive/{os.path.basename(fp)}",
+            'time': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S'),
+            'mtime': int(ts)
+        })
+    return jsonify(out)
 
 @app.route('/api/crop/status')
 def get_crop_status():
