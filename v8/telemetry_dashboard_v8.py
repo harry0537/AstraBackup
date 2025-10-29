@@ -187,14 +187,22 @@ DASHBOARD_HTML = '''
         .vision-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 24px;
             margin-top: 20px;
+            align-items: start;
+            justify-items: center;
         }
         .proximity-panel {
             grid-column: 1;
         }
         .rover-vision-panel {
             grid-column: 2;
+        }
+        .proximity-panel .panel,
+        .rover-vision-panel .panel {
+            width: 100%;
+            max-width: 560px; /* keep balanced dial/card proportion */
+            margin: 0 auto;
         }
         .proximity-panel .radar-container {
             width: 100%;
@@ -318,11 +326,18 @@ DASHBOARD_HTML = '''
         .crop-image-container {
             text-align: center;
             margin-top: 10px;
+            width: 100%;
+            max-width: 560px;
+            aspect-ratio: 16 / 9; /* maintain video/photo aspect */
+            margin-left: auto;
+            margin-right: auto;
+            display: grid;
+            place-items: center;
         }
         .crop-image-container img {
-            max-width: 100%;
-            height: auto;
-            max-height: 500px;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             border: 1px solid var(--card-border);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
@@ -362,6 +377,7 @@ DASHBOARD_HTML = '''
             .vision-row { grid-template-columns: 1fr; }
             .proximity-panel, .rover-vision-panel { grid-column: 1; }
             .radar-container { width: 240px; height: 240px; }
+            .crop-image-container { aspect-ratio: 16 / 9; }
         }
     </style>
 </head>
@@ -429,7 +445,7 @@ DASHBOARD_HTML = '''
             <div class="panel">
                 <h2>REAL-TIME ROVER VISION</h2>
                 <div class="crop-image-container">
-                    <img id="rover-vision" src="/api/crop/image" alt="Rover Vision" 
+                    <img id="rover-vision" src="/api/crop/image/1" alt="Rover Vision" 
                          onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
                          onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
                     <div id="vision-offline" class="alert-offline">
@@ -437,7 +453,11 @@ DASHBOARD_HTML = '''
                     </div>
                     <div class="crop-status" id="crop-status">
                         Rolling buffer: Slot <span id="current-slot">1</span>/10 (cycles every 3s)
-                        <br><small><a href="/api/crop/status" target="_blank" style="color: var(--accent); text-decoration: none;">Debug: Check crop status</a></small>
+                        <br>
+                        <small>
+                            <a href="/api/crop/status" target="_blank" style="color: var(--accent); text-decoration: none; margin-right: 10px;">Debug: Status</a>
+                            <a href="/api/crop/gallery" target="_blank" class="btn" style="text-decoration: none;">Open Gallery</a>
+                        </small>
                     </div>
                 </div>
             </div>
@@ -702,7 +722,7 @@ DASHBOARD_HTML = '''
         
         function updateCropMonitor(cropData) {
             const statusElement = document.getElementById('crop-status');
-            const imageElement = document.getElementById('crop-image');
+            const imageElement = document.getElementById('rover-vision');
             const currentTime = new Date().getTime();
             
             // Update image more frequently - every 3 seconds or when capture count changes
@@ -711,7 +731,8 @@ DASHBOARD_HTML = '''
             
             if (shouldUpdateImage) {
                 const timestamp = new Date().getTime();
-                imageElement.src = `/api/crop/image?t=${timestamp}`;
+                // Keep rolling buffer logic, but if gallery/latest preferred, we could use /api/crop/latest
+                imageElement.src = `/api/crop/image/${currentSlot}?t=${timestamp}`;
                 lastCropCaptureCount = cropData.capture_count;
                 lastImageUpdate = currentTime;
             }
@@ -892,6 +913,63 @@ def get_crop_image(slot):
         return Response(img_byte_arr.getvalue(), mimetype='image/jpeg')
     except:
         return "No crop image available", 404
+
+@app.route('/api/crop/latest')
+def get_crop_latest():
+    """Serve the most recent image from rolling buffer or archive"""
+    from flask import Response
+    import glob
+    try:
+        # Prefer the most recently modified file in /tmp/rover_vision
+        vision_files = sorted(glob.glob('/tmp/rover_vision/*.jpg'), key=os.path.getmtime, reverse=True)
+        if vision_files:
+            with open(vision_files[0], 'rb') as f:
+                data = f.read()
+            resp = Response(data, mimetype='image/jpeg')
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            return resp
+        # Fallback to crop archive
+        archive_files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+        if archive_files:
+            with open(archive_files[0], 'rb') as f:
+                data = f.read()
+            resp = Response(data, mimetype='image/jpeg')
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            return resp
+    except Exception as e:
+        print(f"Error serving latest crop image: {e}")
+    return "No latest image", 404
+
+@app.route('/api/crop/gallery')
+def crop_gallery():
+    """Simple gallery page to browse crop images"""
+    import glob
+    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+    items = []
+    for fp in files[:200]:
+        name = os.path.basename(fp)
+        items.append(f'<a href="/api/crop/archive/{name}" target="_blank"><img src="/api/crop/archive/{name}" style="width:220px; height:auto; border:1px solid #333; border-radius:8px; margin:8px;" loading="lazy"></a>')
+    grid = ''.join(items) if items else '<p>No images yet.</p>'
+    return f"""
+    <html>
+    <head><title>Crop Gallery</title></head>
+    <body style="background:#0f1115; color:#e6eaf2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial; padding: 24px;">
+      <h2 style="margin:0 0 12px 0;">Crop Gallery</h2>
+      <div><a href="/" style="color:#6ee7b7; text-decoration:none;">← Back to Dashboard</a></div>
+      <div style="display:flex; flex-wrap:wrap; margin-top:16px;">{grid}</div>
+    </body>
+    </html>
+    """
+
+@app.route('/api/crop/archive/<path:filename>')
+def serve_archive_file(filename):
+    """Serve a specific archived image safely from /tmp/crop_archive"""
+    from flask import send_file, abort
+    safe_dir = '/tmp/crop_archive'
+    full_path = os.path.join(safe_dir, os.path.basename(filename))
+    if not os.path.exists(full_path):
+        return abort(404)
+    return send_file(full_path, mimetype='image/jpeg', cache_timeout=0)
 
 @app.route('/api/crop/status')
 def get_crop_status():
