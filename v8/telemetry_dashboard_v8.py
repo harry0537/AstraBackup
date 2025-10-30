@@ -10,7 +10,7 @@ import threading
 import os
 import socket
 from datetime import datetime
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request, redirect, session, url_for
 # Make numpy optional; dashboard should not crash if it's missing
 try:
     import numpy as np
@@ -41,6 +41,26 @@ except ImportError:
 app = Flask(__name__)
 if CORS_AVAILABLE:
     CORS(app)
+app.secret_key = os.environ.get('ASTRA_DASHBOARD_SECRET', 'astra-dashboard-secret')
+SIGNUP_SECRET = os.environ.get('ASTRA_SIGNUP_CODE', 'LETMEIN')
+USERS_FILE = '/tmp/astra_dashboard_users.json'
+
+def load_users():
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[AUTH] Failed to load users: {e}")
+    # Default built-in admin
+    return {"admin": "admin"}
+
+def save_users(users: dict) -> None:
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users, f)
+    except Exception as e:
+        print(f"[AUTH] Failed to save users: {e}")
 
 # Global telemetry data
 telemetry_data = {
@@ -344,7 +364,7 @@ DASHBOARD_HTML = '''
             margin-top: 10px;
             width: 100%;
             max-width: 560px;
-            aspect-ratio: 16 / 9; /* maintain video/photo aspect */
+            aspect-ratio: 1 / 1; /* circular dial */
             margin-left: auto;
             margin-right: auto;
             display: grid;
@@ -353,7 +373,8 @@ DASHBOARD_HTML = '''
         .crop-image-container img {
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            object-fit: cover;
+            border-radius: 50%;
             border: 1px solid var(--card-border);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
@@ -400,8 +421,10 @@ DASHBOARD_HTML = '''
             .vision-row { grid-template-columns: 1fr; }
             .proximity-panel, .rover-vision-panel { grid-column: 1; }
             .radar-container { width: 240px; height: 240px; }
-            .crop-image-container { aspect-ratio: 16 / 9; }
+            .crop-image-container { aspect-ratio: 1 / 1; }
         }
+        /* Room boundary map */
+        .room-map { width: 100%; height: 240px; margin: 16px auto; border:1px dashed var(--card-border); border-radius: 12px; }
     </style>
 </head>
 <body>
@@ -426,6 +449,10 @@ DASHBOARD_HTML = '''
     </div>
 
     <div class="container">
+        <div class="panel" style="grid-column:1 / -1;">
+            <h2>ENVIRONMENT BOUNDARY (10m)</h2>
+            <canvas id="room-map" class="room-map"></canvas>
+        </div>
         <div class="panel">
             <h2>SYSTEM STATUS</h2>
             <div class="status-grid" id="system-status">
@@ -534,7 +561,9 @@ DASHBOARD_HTML = '''
         const canvas = document.getElementById('radar');
         const ctx = canvas.getContext('2d');
         const envCanvas = document.getElementById('envmap');
-        const envCtx = envCanvas.getContext('2d');
+        const envCtx = envCanvas ? envCanvas.getContext('2d') : null;
+        const roomMap = document.getElementById('room-map');
+        const roomCtx = roomMap.getContext('2d');
         
         // Make radar bigger to fit the larger container
         function resizeRadar() {
@@ -544,18 +573,25 @@ DASHBOARD_HTML = '''
             canvas.height = size;
         }
         function resizeEnv() {
+            if (!envCanvas) return;
             const container = envCanvas.parentElement;
             const size = Math.min(container.clientWidth, 420);
             envCanvas.width = size;
             envCanvas.height = size;
         }
+        function resizeRoom() {
+            const w = roomMap.parentElement.clientWidth - 20;
+            roomMap.width = Math.max(320, w);
+            roomMap.height = 240;
+        }
         
         // Initial resize
         resizeRadar();
         resizeEnv();
+        resizeRoom();
         
         // Resize on window resize
-        window.addEventListener('resize', () => { resizeRadar(); resizeEnv(); });
+        window.addEventListener('resize', () => { resizeRadar(); resizeEnv(); resizeRoom(); });
         
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
@@ -673,6 +709,7 @@ DASHBOARD_HTML = '''
         }
 
         function drawEnvironment(distances) {
+            if (!envCanvas || !envCtx) return;
             const w = envCanvas.width;
             const h = envCanvas.height;
             const cx = w / 2; const cy = h / 2;
@@ -711,6 +748,33 @@ DASHBOARD_HTML = '''
             // center
             envCtx.fillStyle = 'rgba(230, 234, 242, 0.9)';
             envCtx.beginPath(); envCtx.arc(cx, cy, 3, 0, Math.PI * 2); envCtx.fill();
+        }
+
+        function drawRoomBoundary(distances) {
+            const w = roomMap.width, h = roomMap.height;
+            roomCtx.clearRect(0,0,w,h);
+            // background grid
+            roomCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+            for (let x=0; x<w; x+=40){ roomCtx.beginPath(); roomCtx.moveTo(x,0); roomCtx.lineTo(x,h); roomCtx.stroke(); }
+            for (let y=0; y<h; y+=40){ roomCtx.beginPath(); roomCtx.moveTo(0,y); roomCtx.lineTo(w,y); roomCtx.stroke(); }
+            // 10m boundary
+            roomCtx.strokeStyle = 'rgba(110, 231, 183, 0.6)';
+            roomCtx.lineWidth = 2;
+            roomCtx.strokeRect(8,8,w-16,h-16);
+            // plot obstacles scaled to 10m
+            const cx = w/2, cy = h/2; const maxRange = 10.0; // meters
+            for (let i=0;i<8;i++){
+                const dist = Math.min(distances[i]/100, maxRange);
+                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
+                const a = (angleDeg - 90) * Math.PI/180;
+                const r = (dist / maxRange) * (Math.min(w,h)/2 - 20);
+                const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
+                roomCtx.fillStyle = dist < 1 ? '#ef4444' : dist < 3 ? '#f59e0b' : '#34d399';
+                roomCtx.beginPath(); roomCtx.arc(x,y,5,0,Math.PI*2); roomCtx.fill();
+            }
+            // center rover
+            roomCtx.fillStyle = '#e6eaf2'; roomCtx.beginPath(); roomCtx.arc(cx,cy,3,0,Math.PI*2); roomCtx.fill();
+            roomCtx.fillStyle = 'rgba(230,234,242,0.6)'; roomCtx.fillText('±10m', 12, 22);
         }
 
         // Indicator helpers
@@ -815,6 +879,10 @@ DASHBOARD_HTML = '''
                     updateCropMonitor(data.crop_monitor);
                 }
 
+                // Update environment visuals
+                drawEnvironment(data.proximity);
+                drawRoomBoundary(data.proximity);
+
                 // Update timestamp
                 document.getElementById('timestamp').textContent =
                     new Date().toLocaleTimeString();
@@ -873,6 +941,13 @@ DASHBOARD_HTML = '''
         });
         // Default to live stream first
         showLive();
+        // Footer credit
+        (function(){
+            const footer = document.createElement('div');
+            footer.style.position='fixed'; footer.style.bottom='8px'; footer.style.right='12px'; footer.style.fontSize='11px'; footer.style.color='rgba(255,255,255,0.5)';
+            footer.textContent = 'Developed by Harinder Singh';
+            document.body.appendChild(footer);
+        })();
 
         // Theme toggle
         const themeBtn = document.getElementById('theme-toggle');
@@ -892,7 +967,86 @@ DASHBOARD_HTML = '''
 
 @app.route('/')
 def index():
+    if not session.get('user'):
+        return redirect(url_for('login'))
     return render_template_string(DASHBOARD_HTML)
+
+LOGIN_HTML = '''
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - Astra Dashboard</title>
+<style>
+body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0f1115; color:#e6eaf2; display:grid; place-items:center; height:100vh;}
+.card{background:#181c26; border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:24px; width:320px; box-shadow:0 8px 24px rgba(0,0,0,0.35)}
+input{width:100%; padding:10px 12px; margin:8px 0; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#10141c; color:#e6eaf2}
+button{width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#6ee7b7; color:#0f1115; font-weight:700; cursor:pointer}
+a{color:#6ee7b7; text-decoration:none}
+.muted{color:#98a2b3; font-size:12px;}
+</style></head>
+<body>
+  <div class="card">
+    <h3 style="margin:0 0 12px 0;">Astra Dashboard</h3>
+    <form method="post" action="/login">
+      <input name="username" placeholder="Username" required>
+      <input name="password" type="password" placeholder="Password" required>
+      <button type="submit">Sign in</button>
+    </form>
+    <div class="muted" style="margin-top:10px;">Default admin: admin / admin</div>
+    <div style="margin-top:10px"><a href="/signup">Request admin signup</a></div>
+  </div>
+</body></html>
+'''
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    if request.method == 'POST':
+        users = load_users()
+        user = request.form.get('username','')
+        pw = request.form.get('password','')
+        if users.get(user) == pw or (user=='admin' and pw=='admin'):
+            session['user'] = user
+            return redirect('/')
+        return render_template_string(LOGIN_HTML)
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
+
+SIGNUP_HTML = '''
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signup - Astra Dashboard</title>
+<style>body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0f1115; color:#e6eaf2; display:grid; place-items:center; height:100vh;} .card{background:#181c26; border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:24px; width:340px; box-shadow:0 8px 24px rgba(0,0,0,0.35)} input{width:100%; padding:10px 12px; margin:8px 0; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#10141c; color:#e6eaf2} button{width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#6ee7b7; color:#0f1115; font-weight:700; cursor:pointer} .muted{color:#98a2b3; font-size:12px;}</style></head>
+<body>
+  <div class="card">
+    <h3 style="margin:0 0 12px 0;">Admin Signup</h3>
+    <form method="post" action="/signup">
+      <input name="secret" placeholder="Secret Code" required>
+      <input name="username" placeholder="New Admin Username" required>
+      <input name="password" type="password" placeholder="New Admin Password" required>
+      <button type="submit">Create Admin</button>
+    </form>
+    <div class="muted" style="margin-top:10px;">A valid secret code is required.</div>
+  </div>
+</body></html>
+'''
+
+@app.route('/signup', methods=['GET','POST'])
+def signup():
+    if request.method == 'POST':
+        secret = request.form.get('secret','')
+        if secret != SIGNUP_SECRET:
+            return render_template_string(SIGNUP_HTML)
+        users = load_users()
+        user = request.form.get('username','')
+        pw = request.form.get('password','')
+        if user:
+            users[user] = pw
+            save_users(users)
+            return redirect('/login')
+    return render_template_string(SIGNUP_HTML)
 
 @app.route('/api/telemetry')
 def get_telemetry():
