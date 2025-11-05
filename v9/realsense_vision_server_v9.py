@@ -416,8 +416,31 @@ class VisionServer:
                 depth_color = cv2.applyColorMap(d8, getattr(cv2, 'COLORMAP_TURBO', cv2.COLORMAP_JET))
                 dj_tmp = os.path.join(OUTPUT_DIR, "depth_latest.jpg.tmp")
                 dj_path = os.path.join(OUTPUT_DIR, "depth_latest.jpg")
-                cv2.imwrite(dj_tmp, depth_color, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                os.replace(dj_tmp, dj_path)
+                
+                # Try OpenCV first, fallback to PIL
+                success = False
+                try:
+                    success = cv2.imwrite(dj_tmp, depth_color, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    if success and os.path.exists(dj_tmp) and os.path.getsize(dj_tmp) > 0:
+                        os.replace(dj_tmp, dj_path)
+                        success = True
+                    else:
+                        success = False
+                except:
+                    success = False
+                
+                # Fallback to PIL if OpenCV failed
+                if not success and PIL_AVAILABLE:
+                    try:
+                        # Convert BGR to RGB for PIL
+                        rgb_color = cv2.cvtColor(depth_color, cv2.COLOR_BGR2RGB)
+                        pil_image = Image.fromarray(rgb_color)
+                        pil_image.save(dj_tmp, 'JPEG', quality=85)
+                        if os.path.exists(dj_tmp) and os.path.getsize(dj_tmp) > 0:
+                            os.replace(dj_tmp, dj_path)
+                            success = True
+                    except:
+                        pass
             except Exception:
                 pass
             
@@ -463,8 +486,33 @@ class VisionServer:
                 ir_image = ir_image[:, :, 0]
             ir_tmp = os.path.join(OUTPUT_DIR, "ir_latest.jpg.tmp")
             ir_path = os.path.join(OUTPUT_DIR, "ir_latest.jpg")
-            cv2.imwrite(ir_tmp, ir_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            os.replace(ir_tmp, ir_path)
+            
+            # Try OpenCV first, fallback to PIL if OpenCV doesn't support JPEG
+            success = False
+            try:
+                success = cv2.imwrite(ir_tmp, ir_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if success and os.path.exists(ir_tmp) and os.path.getsize(ir_tmp) > 0:
+                    os.replace(ir_tmp, ir_path)
+                else:
+                    success = False
+            except:
+                success = False
+            
+            # Fallback to PIL if OpenCV failed
+            if not success and PIL_AVAILABLE:
+                try:
+                    # For mono images, convert to PIL Image directly
+                    pil_image = Image.fromarray(ir_image, mode='L')
+                    pil_image.save(ir_tmp, 'JPEG', quality=85)
+                    if os.path.exists(ir_tmp) and os.path.getsize(ir_tmp) > 0:
+                        os.replace(ir_tmp, ir_path)
+                        success = True
+                except Exception as pil_error:
+                    self.log(f"✗ PIL fallback for IR also failed: {pil_error}")
+                    success = False
+            
+            if not success:
+                raise RuntimeError("Failed to write IR JPEG with both OpenCV and PIL")
 
             meta_tmp = os.path.join(OUTPUT_DIR, "ir_latest.json.tmp")
             meta_path = os.path.join(OUTPUT_DIR, "ir_latest.json")
