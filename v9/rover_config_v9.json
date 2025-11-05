@@ -1,0 +1,49 @@
+{
+  "version": "9.0",
+  "description": "Project Astra NZ - V9 Configuration with Vision Server",
+  
+  "vision_server": {
+    "rgb_resolution": [640, 480],
+    "depth_resolution": [424, 240],
+    "fps": 15,
+    "exposure_us": 6000,
+    "gain": 32,
+    "output_dir": "/tmp/vision_v9"
+  },
+  
+  "proximity_bridge": {
+    "lidar_port": "/dev/ttyUSB0",
+    "pixhawk_port": "/dev/ttyACM0",
+    "pixhawk_baud": 57600,
+    "update_rate_hz": 10,
+    "min_distance_cm": 20,
+    "max_distance_cm": 2500
+  },
+  
+  "crop_monitor": {
+    "capture_interval_seconds": 10,
+    "max_archived_images": 10,
+    "archive_dir": "/tmp/crop_archive",
+    "dashboard_dir": "/tmp/rover_vision"
+  },
+  
+  "dashboard": {
+    "ip": "10.244.77.186",
+    "port": 8081,
+    "enable_cors": true
+  },
+  
+  "data_relay": {
+    "dashboard_ip": "10.244.77.186",
+    "dashboard_port": 8081,
+    "telemetry_interval_seconds": 2,
+    "image_interval_seconds": 60
+  },
+  
+  "system": {
+    "component_startup_delay_seconds": 5,
+    "enable_auto_restart": true,
+    "log_level": "INFO"
+  }
+}
+

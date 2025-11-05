@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rover Telemetry Dashboard - Project Astra NZ</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0F2845;
+            --card: #1E3A5F;
+            --text: #FFFFFF;
+            --cyan: #00FFFF;
+            --cyan-glow: rgba(0, 255, 255, 0.6);
+            --cyan-light: rgba(0, 255, 255, 0.15);
+            --green: #22C55E;
+            --orange: #F59E0B;
+            --red: #EF4444;
+            --muted: rgba(255, 255, 255, 0.75);
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Layout with sidebar */
+        .layout {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 16px;
+            max-width: 1920px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .sidebar {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+            height: fit-content;
+            position: sticky;
+            top: 16px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+        }
+
+        .quick-status {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .quick-item { 
+            display: grid; 
+            grid-template-columns: auto 1fr;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            min-height: 20px;
+        }
+        .quick-label { 
+            color: var(--muted); 
+            font-weight: 600; 
+            letter-spacing: 0.05em;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .quick-value { 
+            font-weight: 700; 
+            color: var(--text);
+            text-align: right;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .heartbeat-item {
+            grid-template-columns: auto 1fr;
+        }
+        .heartbeat-item .quick-value {
+            display: none;
+        }
+        .heartbeat { 
+            width: 8px; 
+            height: 8px; 
+            border-radius: 50%; 
+            background: var(--green); 
+            box-shadow: 0 0 8px var(--green);
+            justify-self: end;
+            grid-column: 2;
+        }
+
+        .mini-panel { margin-top: 14px; }
+        .mini-panel .panel-header { margin-bottom: 8px; }
+        .mini-panel .logs-container { height: 220px; }
+        .mini-panel .alerts-list { max-height: 240px; overflow-y: auto; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%);
+            color: var(--text);
+            padding: 16px;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Main Header */
+        .main-header {
+            text-align: center;
+            padding: 14px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .main-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--cyan);
+            text-shadow: 0 0 20px var(--cyan-glow);
+            margin-bottom: 12px;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-label {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .status-value {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 700;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid var(--cyan);
+        }
+        
+        .status-value.ready { color: var(--green); }
+        .status-value.autonomous { color: var(--cyan); }
+        .status-value.live { color: var(--green); }
+        .status-value.time { color: var(--cyan); }
+        
+        /* Main Grid Layout */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+            grid-auto-flow: row dense;
+        }
+        
+        .dashboard-panel {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            min-height: 280px;
+        }
+        
+        .dashboard-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+            animation: shine 4s infinite;
+        }
+        
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .dashboard-panel:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 255, 255, 0.35);
+            transform: translateY(-2px);
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 10px var(--cyan-glow);
+        }
+        
+        .panel-content {
+            height: calc(100% - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* LIDAR Panel */
+        .lidar-container {
+            width: 100%;
+            height: 280px;
+            min-height: 280px;
+            position: relative;
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .lidar-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 50%;
+        }
+        
+        .lidar-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .lidar-stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .lidar-stat-item:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+        
+        .stat-value {
+            color: var(--text);
+            font-weight: 700;
+        }
+        
+        /* RealSense Panel */
+        .camera-container {
+            width: 100%;
+            height: 260px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 255, 255, 0.05) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .camera-container::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 255, 0.03) 2px,
+                rgba(0, 255, 255, 0.03) 4px
+            );
+            animation: scan 2s linear infinite;
+        }
+        
+        @keyframes scan {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+        
+        .camera-view-mode {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        
+        .btn-small {
+            padding: 4px 10px;
+            border: 1px solid var(--cyan);
+            background: transparent;
+            color: var(--cyan);
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+        
+        .btn-small:hover {
+            background: rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+        
+        .btn-small.active {
+            background: var(--cyan);
+            color: var(--bg);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+        
+        .camera-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+        .fps-row { display: flex; align-items: center; gap: 8px; }
+        #fps-sparkline { width: 100px; height: 20px; border: 1px solid rgba(0,255,255,0.2); border-radius: 4px; background: rgba(0,255,255,0.04); }
+        
+        /* System Status Panel */
+        .system-status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .status-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .status-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .status-card-title {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .status-card-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+        }
+        
+        .status-card-value.running { color: var(--green); }
+        .status-card-value.stopped { color: var(--red); }
+        .status-card-value.good { color: var(--green); }
+        .status-card-value.warning { color: var(--orange); }
+        .status-card-value.error { color: var(--red); }
+        .status-card-value.connected { color: var(--green); }
+        .status-card-value.disconnected { color: var(--red); }
+        
+        /* Statistics Panel */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .stat-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-card-label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .stat-card-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--cyan);
+        }
+        
+        /* Live Logs Panel */
+        .logs-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 6px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+        .logs-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .chip { padding: 4px 10px; border: 1px solid rgba(0,255,255,0.4); color: var(--cyan); background: transparent; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.2s ease; text-transform: uppercase; font-weight: 600; }
+        .chip.active { background: var(--cyan); color: var(--bg); box-shadow: 0 0 10px rgba(0,255,255,0.3); }
+        
+        /* Gallery */
+        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+        .gallery-item { position: relative; border: 1px solid rgba(0,255,255,0.15); border-radius: 8px; overflow: hidden; background: rgba(0,255,255,0.04); cursor: pointer; }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .gallery-item .gallery-label { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 4px; }
+        
+        .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .gallery-modal.open { display: flex; }
+        .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 10px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); }
+        #gallery-image { max-width: 88vw; max-height: 74vh; display: block; border-radius: 6px; }
+        .gallery-caption { margin-top: 6px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        
+        .logs-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .logs-container::-webkit-scrollbar-track {
+            background: rgba(0, 255, 255, 0.05);
+        }
+        
+        .logs-container::-webkit-scrollbar-thumb {
+            background: var(--cyan);
+            border-radius: 3px;
+        }
+        
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+            animation: logSlide 0.3s ease-out;
+        }
+        
+        @keyframes logSlide {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .log-time {
+            color: var(--cyan);
+            font-weight: 700;
+            margin-right: 8px;
+        }
+        
+        .log-message {
+            color: var(--text);
+        }
+        
+        .log-entry.info .log-message { color: var(--cyan); }
+        .log-entry.warn .log-message { color: var(--orange); }
+        .log-entry.error .log-message { color: var(--red); }
+        
+        /* Alerts Panel */
+        .alerts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .alert-item {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: alertSlide 0.3s ease-out;
+        }
+        
+        @keyframes alertSlide {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-item.warn {
+            border-color: var(--orange);
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .alert-item.success {
+            border-color: var(--green);
+            background: rgba(34, 197, 94, 0.1);
+        }
+        
+        .alert-icon {
+            font-size: 18px;
+        }
+        
+        /* Login Modal */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 40, 69, 0.95);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .login-card {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.95) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.4);
+            border-radius: 16px;
+            padding: 32px;
+            width: 420px;
+            max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 255, 255, 0.2);
+            animation: slideUp 0.4s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .login-vehicle-image {
+            width: 100%;
+            max-width: 320px;
+            height: auto;
+            margin: 0 auto 20px;
+            display: block;
+            filter: drop-shadow(0 0 20px rgba(0, 255, 255, 0.4));
+            border-radius: 8px;
+            object-fit: contain;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .login-card h2 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--cyan);
+            text-align: center;
+            margin-bottom: 8px;
+            text-shadow: 0 0 15px var(--cyan-glow);
+        }
+        
+        .login-card .subtitle {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 24px;
+        }
+        
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .login-form input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            background: rgba(15, 40, 69, 0.7);
+            color: var(--text);
+            font-size: 14px;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        
+        .login-form input:focus {
+            outline: none;
+            border-color: var(--cyan);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+            background: rgba(15, 40, 69, 0.85);
+        }
+        
+        .login-form button {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(135deg, var(--cyan) 0%, #00CCCC 100%);
+            color: #0F2845;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 255, 255, 0.4);
+        }
+        
+        .login-form button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 255, 255, 0.5);
+            background: linear-gradient(135deg, #00FFFF 0%, #00DDDD 100%);
+        }
+        
+        .login-form button:active {
+            transform: translateY(0);
+        }
+        
+        .login-error {
+            color: var(--red);
+            font-size: 12px;
+            text-align: center;
+            margin-top: -8px;
+            display: none;
+        }
+        
+        .login-error.show {
+            display: block;
+            animation: shake 0.3s;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+        
+        .login-hint {
+            text-align: center;
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .logout-btn {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 8px;
+            color: var(--red);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            z-index: 1000;
+            transition: all 0.2s;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: var(--red);
+        }
+        
+        .dashboard-content {
+            display: none;
+        }
+        
+        .dashboard-content.authenticated {
+            display: grid;
+        }
+        
+        /* Developer credit - fixed position in bottom right corner */
+        .developer-credit {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 6px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+            display: none; /* Hidden by default, shown when authenticated */
+        }
+        
+        .developer-credit:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: rgba(0, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .layout { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout dashboard-content">
+        <aside class="sidebar">
+            <div class="panel-header">📡 QUICK STATUS</div>
+            <div class="quick-status">
+                <div class="quick-item"><span class="quick-label">Status</span><span class="quick-value" id="q-status">Ready</span></div>
+                <div class="quick-item"><span class="quick-label">Mode</span><span class="quick-value" id="q-mode">Autonomous</span></div>
+                <div class="quick-item"><span class="quick-label">Connection</span><span class="quick-value" id="q-conn">Live</span></div>
+                <div class="quick-item heartbeat-item"><span class="quick-label">Heartbeat</span><span class="heartbeat" id="q-heartbeat"></span></div>
+                <div class="quick-item"><span class="quick-label">Time</span><span class="quick-value" id="q-time">--:--</span></div>
+            </div>
+
+            <!-- Sidebar Logs -->
+            <div class="mini-panel">
+                <div class="panel-header">📋 LIVE LOGS</div>
+                <div class="logs-toolbar">
+                    <button class="chip active" data-level="all">All</button>
+                    <button class="chip" data-level="info">Info</button>
+                    <button class="chip" data-level="warn">Warn</button>
+                    <button class="chip" data-level="error">Error</button>
+                </div>
+                <div class="logs-container" id="logs-container"></div>
+            </div>
+
+            <!-- Sidebar Alerts -->
+            <div class="mini-panel">
+                <div class="panel-header">🔔 ALERTS</div>
+                <div class="alerts-list" id="alerts-list"></div>
+            </div>
+        </aside>
+        <main>
+    <!-- Main Header -->
+    <div class="main-header">
+        <h1>🚀 ROVER TELEMETRY DASHBOARD</h1>
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">STATUS:</span>
+                <span class="status-value ready" id="status-ready">READY</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">MODE:</span>
+                <span class="status-value autonomous" id="status-mode">AUTONOMOUS</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">CONNECTION:</span>
+                <span class="status-value live" id="status-connection">LIVE</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">TIME:</span>
+                <span class="status-value time" id="status-time">--:--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard Grid -->
+    <div class="dashboard-grid">
+        <!-- LIDAR / PROXIMITY -->
+        <div class="dashboard-panel">
+            <div class="panel-header">🌀 LIDAR / PROXIMITY DETECTION</div>
+            <div class="panel-content">
+                <div class="lidar-container">
+                    <canvas id="lidar-canvas" class="lidar-canvas"></canvas>
+                </div>
+                <div class="lidar-stats">
+                    <div class="lidar-stat-item">
+                        <span class="stat-label">Obstacles:</span>
+                        <span class="stat-value" id="lidar-obstacles">0</span>
+                    </div>
+                    <div class="lidar-stat-item">
+                        <span class="stat-label">Min Range:</span>
+                        <span class="stat-value" id="lidar-min">-- m</span>
+                    </div>
+                    <div class="lidar-stat-item">
+                        <span class="stat-label">Success Rate:</span>
+                        <span class="stat-value" id="lidar-success">--%</span>
+                    </div>
+                    <div class="lidar-stat-item">
+                        <span class="stat-label">Avg Range:</span>
+                        <span class="stat-value" id="lidar-avg">-- m</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- REALSENSE -->
+        <div class="dashboard-panel">
+            <div class="panel-header">🎥 REALSENSE CAMERA</div>
+            <div class="panel-content">
+                <div class="camera-view-mode">
+                    <button class="btn-small active" id="btn-rgb">RGB</button>
+                    <button class="btn-small" id="btn-depth">Depth</button>
+                    <button class="btn-small" id="btn-ir">IR</button>
+                    <span style="flex:1"></span>
+                    <button class="btn-small" id="btn-open-gallery">Open Gallery</button>
+                </div>
+                <div class="camera-container" id="camera-view">
+                    <div style="text-align: center; position: relative; z-index: 1;">
+                        <div style="font-size: 48px; opacity: 0.5; margin-bottom: 10px;">📹</div>
+                        <div>RealSense Camera Stream</div>
+                    </div>
+                </div>
+                <div class="camera-info">
+                    <span class="fps-row" style="color: var(--muted);">FPS: <span id="camera-fps" style="color: var(--text); font-weight: 700; margin-left: 6px;">0</span>
+                        <canvas id="fps-sparkline" width="100" height="20"></canvas>
+                    </span>
+                    <span style="color: var(--muted);">Status: <span id="camera-status" style="color: var(--text); font-weight: 700;">--</span></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Secondary Dashboard Grid -->
+    <div class="dashboard-grid">
+        <!-- SYSTEM STATUS -->
+        <div class="dashboard-panel">
+            <div class="panel-header">⚙️ SYSTEM STATUS</div>
+            <div class="panel-content">
+                <div class="system-status-grid">
+                    <div class="status-card">
+                        <div class="status-card-title">Proximity Bridge</div>
+                        <div class="status-card-value" id="status-proximity-bridge">Unknown</div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-card-title">Data Relay</div>
+                        <div class="status-card-value" id="status-data-relay">Unknown</div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-card-title">Crop Monitor</div>
+                        <div class="status-card-value" id="status-crop-monitor">Unknown</div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-card-title">RPLidar</div>
+                        <div class="status-card-value" id="status-rplidar">Unknown</div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-card-title">RealSense</div>
+                        <div class="status-card-value" id="status-realsense">Unknown</div>
+                    </div>
+                    <div class="status-card">
+                        <div class="status-card-title">Pixhawk</div>
+                        <div class="status-card-value" id="status-pixhawk">Unknown</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATISTICS -->
+        <div class="dashboard-panel">
+            <div class="panel-header">📊 STATISTICS</div>
+            <div class="panel-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-card-label">Uptime</div>
+                        <div class="stat-card-value" id="stat-uptime">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Messages Sent</div>
+                        <div class="stat-card-value" id="stat-messages">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">RPLidar Success</div>
+                        <div class="stat-card-value" id="stat-lidar-success">--%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">RealSense FPS</div>
+                        <div class="stat-card-value" id="stat-realsense-fps">0</div>
+                    </div>
+                    <div class="stat-card" style="grid-column: 1 / -1;">
+                        <div class="stat-card-label">Last Update</div>
+                        <div class="stat-card-value" style="font-size: 14px;" id="stat-last-update">--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        </main>
+    </div>
+    
+    <!-- Developer Credit -->
+    <div class="developer-credit">Developed by Harinder Singh</div>
+    
+    <!-- Login Overlay -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-card">
+            <!-- Vehicle Image -->
+            <img src="rover4.webp" alt="Autonomous Rover" class="login-vehicle-image">
+            
+            <h2>🚀 Astra Dashboard</h2>
+            <div class="subtitle">Project Astra NZ - V9</div>
+            <form class="login-form" id="login-form">
+                <input type="text" id="login-username" placeholder="Username" required autocomplete="username">
+                <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password">
+                <div class="login-error" id="login-error">Invalid username or password</div>
+                <button type="submit">Sign In</button>
+            </form>
+            <div class="login-hint">Developed by Harinder Singh</div>
+        </div>
+    </div>
+    
+    <!-- Logout Button -->
+    <button class="logout-btn" id="logout-btn" style="display: none;">Logout</button>
+    
+    <!-- Gallery Modal -->
+    <div class="gallery-modal" id="gallery-modal" aria-hidden="true">
+        <div class="gallery-modal-content">
+            <img id="gallery-image" alt="Crop capture" />
+            <div class="gallery-caption">
+                <span id="gallery-caption"></span>
+                <button class="btn-small" id="gallery-close">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Authentication System
+        const AUTH_KEY = 'astra_dashboard_auth';
+        const DEFAULT_USER = 'admin';
+        const DEFAULT_PASS = 'admin';
+        
+        // Set authentication (session only - cleared on refresh)
+        function setAuthenticated(username) {
+            // Store in sessionStorage (cleared on page refresh/close)
+            sessionStorage.setItem(AUTH_KEY, JSON.stringify({
+                username: username,
+                timestamp: Date.now()
+            }));
+        }
+        
+        // Check if user is authenticated (using sessionStorage)
+        function isAuthenticatedSession() {
+            const auth = sessionStorage.getItem(AUTH_KEY);
+            if (!auth) return false;
+            try {
+                const data = JSON.parse(auth);
+                return true;
+            } catch {
+                return false;
+            }
+        }
+        
+        // Clear authentication
+        function clearAuth() {
+            localStorage.removeItem(AUTH_KEY);
+            sessionStorage.removeItem(AUTH_KEY);
+        }
+        
+        // Show/hide dashboard based on auth
+        function checkAuth() {
+            const overlay = document.getElementById('login-overlay');
+            const dashboard = document.querySelector('.dashboard-content') || document.querySelector('.layout');
+            const logoutBtn = document.getElementById('logout-btn');
+            const developerCredit = document.querySelector('.developer-credit');
+            
+            if (isAuthenticatedSession()) {
+                overlay.style.display = 'none';
+                if (dashboard) {
+                    dashboard.classList.add('authenticated');
+                    dashboard.style.display = 'grid';
+                }
+                if (logoutBtn) logoutBtn.style.display = 'block';
+                if (developerCredit) developerCredit.style.display = 'block';
+                // Initialize LIDAR after dashboard is shown
+                setTimeout(() => {
+                    initLidar();
+                    if (telemetryData && telemetryData.proximity) {
+                        drawLidar(telemetryData.proximity);
+                    }
+                }, 100);
+            } else {
+                overlay.style.display = 'flex';
+                if (dashboard) {
+                    dashboard.classList.remove('authenticated');
+                    dashboard.style.display = 'none';
+                }
+                if (logoutBtn) logoutBtn.style.display = 'none';
+                if (developerCredit) developerCredit.style.display = 'none';
+            }
+        }
+        
+        // Handle login form
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            const errorEl = document.getElementById('login-error');
+            
+            // Check credentials (default admin/admin or any stored users)
+            let users = {};
+            try {
+                const stored = localStorage.getItem('astra_dashboard_users');
+                if (stored) users = JSON.parse(stored);
+            } catch {}
+            
+            // Default admin account
+            users[DEFAULT_USER] = DEFAULT_PASS;
+            
+            if (users[username] === password || (username === DEFAULT_USER && password === DEFAULT_PASS)) {
+                setAuthenticated(username);
+                errorEl.classList.remove('show');
+                checkAuth();
+                document.getElementById('login-password').value = '';
+            } else {
+                errorEl.classList.add('show');
+                setTimeout(() => errorEl.classList.remove('show'), 3000);
+            }
+        });
+        
+        // Handle logout
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            clearAuth();
+            checkAuth();
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+        });
+        
+        // Check auth on page load (requires login on refresh)
+        window.addEventListener('load', () => {
+            checkAuth();
+        });
+        
+        // Run immediately if DOM already loaded
+        if (document.readyState !== 'loading') {
+            checkAuth();
+        }
+        
+        // Simulated telemetry data structure matching actual API
+        let telemetryData = {
+            proximity: [2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500], // 8 sectors in cm
+            system_status: {
+                proximity_bridge: 'Unknown',
+                data_relay: 'Unknown',
+                crop_monitor: 'Unknown'
+            },
+            sensor_health: {
+                rplidar: 'Unknown',
+                realsense: 'Unknown',
+                pixhawk: 'Unknown'
+            },
+            statistics: {
+                uptime: 0,
+                messages_sent: 0,
+                last_update: '',
+                rplidar_success_rate: 0,
+                realsense_fps: 0
+            }
+        };
+
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+            });
+            document.getElementById('status-time').textContent = time;
+            const qt = document.getElementById('q-time'); if (qt) qt.textContent = time;
+        }
+        updateTimestamp();
+        setInterval(updateTimestamp, 1000);
+
+        // LIDAR - Initialize after auth check
+        let lidarCanvas = null;
+        let lidarCtx = null;
+        
+        function initLidar() {
+            lidarCanvas = document.getElementById('lidar-canvas');
+            if (!lidarCanvas) return;
+            lidarCtx = lidarCanvas.getContext('2d');
+            resizeLidar();
+            window.addEventListener('resize', resizeLidar);
+        }
+        
+        function resizeLidar() {
+            if (!lidarCanvas || !lidarCanvas.parentElement) return;
+            const container = lidarCanvas.parentElement;
+            const size = Math.min(container.clientWidth, container.clientHeight || 280);
+            if (size > 0) {
+                // High-DPI support: scale canvas by device pixel ratio for crisp rendering
+                const dpr = window.devicePixelRatio || 1;
+                const displaySize = size;
+                lidarCanvas.width = displaySize * dpr;
+                lidarCanvas.height = displaySize * dpr;
+                lidarCanvas.style.width = displaySize + 'px';
+                lidarCanvas.style.height = displaySize + 'px';
+                
+                // Reset transform and scale context to match device pixel ratio
+                lidarCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                
+                // Force redraw
+                if (telemetryData && telemetryData.proximity) {
+                    drawLidar(telemetryData.proximity);
+                }
+            }
+        }
+
+        let scanAngle = 0;
+        // Sector boundary angles (8 sectors, each 45° wide)
+        // FRONT sector spans from -22.5° to +22.5° (centered at 0° = top/north)
+        // After subtracting 90° for canvas: FRONT label at -90° (straight up)
+        const sectorAngles = [-22.5, 22.5, 67.5, 112.5, 157.5, -157.5, -112.5, -67.5];
+        const sectorNames = ['FRONT', 'F-RIGHT', 'RIGHT', 'B-RIGHT', 'BACK', 'B-LEFT', 'LEFT', 'F-LEFT'];
+
+        function drawLidar(distances) {
+            if (!lidarCanvas || !lidarCtx || lidarCanvas.width === 0 || lidarCanvas.height === 0) return;
+            
+            // Get logical canvas size (after transform scaling)
+            const dpr = window.devicePixelRatio || 1;
+            const logicalWidth = lidarCanvas.width / dpr;
+            const logicalHeight = lidarCanvas.height / dpr;
+            const centerX = logicalWidth / 2;
+            const centerY = logicalHeight / 2;
+            const maxRadius = Math.min(logicalWidth, logicalHeight) / 2 - 20;
+            
+            // Clear canvas using logical dimensions (transform is already applied)
+            lidarCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+            // Grid circles (improved line quality)
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.25)';
+            lidarCtx.lineWidth = 2;
+            for (let r = 0.25; r <= 1; r += 0.25) {
+                lidarCtx.beginPath();
+                lidarCtx.arc(centerX, centerY, maxRadius * r, 0, Math.PI * 2);
+                lidarCtx.stroke();
+                
+                // Distance labels (improved size and readability)
+                lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                lidarCtx.font = 'bold 13px sans-serif';
+                lidarCtx.textAlign = 'left';
+                lidarCtx.textBaseline = 'middle';
+                // Add subtle shadow for better readability
+                lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                lidarCtx.shadowBlur = 2;
+                lidarCtx.fillText(`${Math.round(r * 25)}m`, centerX + 6, centerY - maxRadius * r);
+                lidarCtx.shadowBlur = 0;
+            }
+            
+            // Danger rings (1m red, 3m orange) - improved visibility
+            const r1 = (1 / 25) * maxRadius;
+            const r3 = (3 / 25) * maxRadius;
+            lidarCtx.setLineDash([8, 4]);
+            lidarCtx.lineWidth = 2.5;
+            lidarCtx.strokeStyle = 'rgba(239, 68, 68, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r1, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r3, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.setLineDash([]);
+            
+            // Radial lines (improved visibility)
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            lidarCtx.lineWidth = 1.5;
+            for (let angle of sectorAngles) {
+                const rad = (angle - 90) * Math.PI / 180;
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.lineTo(centerX + maxRadius * Math.cos(rad), centerY + maxRadius * Math.sin(rad));
+                lidarCtx.stroke();
+            }
+
+            // Scanning line
+            scanAngle = (scanAngle + 3) % 360;
+            const scanRad = (scanAngle - 90) * Math.PI / 180;
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.lineWidth = 2;
+            lidarCtx.shadowBlur = 15;
+            lidarCtx.shadowColor = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY);
+            lidarCtx.lineTo(centerX + maxRadius * Math.cos(scanRad), centerY + maxRadius * Math.sin(scanRad));
+            lidarCtx.stroke();
+            lidarCtx.shadowBlur = 0;
+
+            // Obstacles
+            let obstacleCount = 0;
+            let minDist = Infinity;
+            let totalDist = 0;
+            for (let i = 0; i < 8; i++) {
+                const distance = distances[i] / 100; // Convert cm to meters
+                if (distance < 25) {
+                    obstacleCount++;
+                    if (distance < minDist) minDist = distance;
+                }
+                totalDist += distance;
+                
+                const pixelDist = Math.min((distance / 25) * maxRadius, maxRadius);
+                const startAngle = (sectorAngles[i] - 90) * Math.PI / 180;
+                const endAngle = (sectorAngles[(i + 1) % 8] - 90) * Math.PI / 180;
+                
+                let color;
+                if (distance < 1) color = 'rgba(239, 68, 68, 0.7)';
+                else if (distance < 3) color = 'rgba(245, 158, 11, 0.6)';
+                else color = 'rgba(34, 197, 94, 0.4)';
+                
+                lidarCtx.fillStyle = color;
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.arc(centerX, centerY, pixelDist, startAngle, endAngle);
+                lidarCtx.lineTo(centerX, centerY);
+                lidarCtx.closePath();
+                lidarCtx.fill();
+            }
+
+            // Center rover
+            lidarCtx.fillStyle = '#22C55E';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY - 10);
+            lidarCtx.lineTo(centerX - 7, centerY + 7);
+            lidarCtx.lineTo(centerX + 7, centerY + 7);
+            lidarCtx.closePath();
+            lidarCtx.fill();
+        
+        // Sector labels (positioned at sector centers, not boundaries) - improved readability
+        lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        lidarCtx.font = 'bold 12px sans-serif';
+        lidarCtx.textAlign = 'center';
+        lidarCtx.textBaseline = 'middle';
+        // Add text shadow for better contrast
+        lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        lidarCtx.shadowBlur = 3;
+        for (let i = 0; i < 8; i++) {
+            // Calculate sector center angle (midpoint between boundaries)
+            const startAngle = sectorAngles[i];
+            const endAngle = sectorAngles[(i + 1) % 8];
+            // Handle wrap-around for BACK sector
+            let centerAngle = (startAngle + endAngle) / 2;
+            if (Math.abs(endAngle - startAngle) > 180) {
+                // Wrap around case (BACK sector)
+                centerAngle = (startAngle + endAngle + 360) / 2;
+                if (centerAngle > 180) centerAngle -= 360;
+            }
+            const angleDeg = centerAngle - 90;
+            const rad = angleDeg * Math.PI / 180;
+            // Position labels on the circle edge (inside but near edge)
+            const labelRadius = maxRadius - 12;
+            const lx = centerX + labelRadius * Math.cos(rad);
+            const ly = centerY + labelRadius * Math.sin(rad);
+            const text = sectorNames[i];
+            lidarCtx.fillText(text, lx, ly);
+        }
+        lidarCtx.shadowBlur = 0;
+        
+        // Nearest distance text (improved size and readability)
+        lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        lidarCtx.font = 'bold 14px sans-serif';
+        lidarCtx.textAlign = 'center';
+        lidarCtx.textBaseline = 'middle';
+        lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+        lidarCtx.shadowBlur = 4;
+        const nearestText = (minDist === Infinity ? '--' : minDist.toFixed(2)) + ' m';
+        lidarCtx.fillText(nearestText, centerX, centerY + 28);
+        lidarCtx.shadowBlur = 0;
+
+            // Calculate success rate (percentage of sectors with valid readings)
+            const validReadings = distances.filter(d => d > 0 && d < 2500).length;
+            const successRate = Math.round((validReadings / 8) * 100);
+
+            // Update stats
+            document.getElementById('lidar-obstacles').textContent = obstacleCount;
+            document.getElementById('lidar-min').textContent = minDist === Infinity ? '-- m' : minDist.toFixed(2) + ' m';
+            document.getElementById('lidar-avg').textContent = (totalDist / 8).toFixed(2) + ' m';
+            document.getElementById('lidar-success').textContent = successRate + '%';
+
+            return { obstacleCount, minDist, avgDist: totalDist / 8, successRate };
+        }
+
+        // Generate simulated data matching actual telemetry structure
+        function generateTelemetryData() {
+            const proximity = [];
+            for (let i = 0; i < 8; i++) {
+                if (Math.random() < 0.3) {
+                    proximity.push(Math.random() * 500 + 50); // Close obstacle
+                } else {
+                    proximity.push(Math.random() * 1000 + 1500); // Far obstacle
+                }
+            }
+
+            // Simulate system status
+            const statuses = ['RUNNING', 'STOPPED', 'Unknown'];
+            const healths = ['Good', 'Warning', 'Error', 'Unknown'];
+            const connections = ['Connected', 'Disconnected', 'Unknown'];
+
+            return {
+                proximity,
+                system_status: {
+                    proximity_bridge: statuses[Math.floor(Math.random() * 2)], // RUNNING or STOPPED
+                    data_relay: statuses[Math.floor(Math.random() * 2)],
+                    crop_monitor: statuses[Math.floor(Math.random() * 2)]
+                },
+                sensor_health: {
+                    rplidar: healths[Math.floor(Math.random() * 3)], // Good, Warning, or Error
+                    realsense: connections[Math.floor(Math.random() * 2)], // Connected or Disconnected
+                    pixhawk: connections[Math.floor(Math.random() * 2)]
+                },
+                statistics: {
+                    uptime: Math.floor(Math.random() * 86400), // seconds
+                    messages_sent: Math.floor(1000 + Math.random() * 5000),
+                    last_update: new Date().toLocaleTimeString(),
+                    rplidar_success_rate: Math.floor(85 + Math.random() * 15),
+                    realsense_fps: Math.floor(14 + Math.random() * 3)
+                }
+            };
+        }
+
+        // Update status indicators
+        function updateStatusIndicators(data) {
+            // System status
+            updateStatusCard('status-proximity-bridge', data.system_status.proximity_bridge);
+            updateStatusCard('status-data-relay', data.system_status.data_relay);
+            updateStatusCard('status-crop-monitor', data.system_status.crop_monitor);
+            
+            // Sensor health
+            updateStatusCard('status-rplidar', data.sensor_health.rplidar);
+            updateStatusCard('status-realsense', data.sensor_health.realsense);
+            updateStatusCard('status-pixhawk', data.sensor_health.pixhawk);
+            
+            // Statistics
+            const stats = data.statistics;
+            const uptimeHours = Math.floor(stats.uptime / 3600);
+            const uptimeMinutes = Math.floor((stats.uptime % 3600) / 60);
+            document.getElementById('stat-uptime').textContent = `${uptimeHours}h ${uptimeMinutes}m`;
+            document.getElementById('stat-messages').textContent = stats.messages_sent.toLocaleString();
+            document.getElementById('stat-lidar-success').textContent = stats.rplidar_success_rate + '%';
+            document.getElementById('stat-realsense-fps').textContent = stats.realsense_fps;
+            document.getElementById('stat-last-update').textContent = stats.last_update;
+            
+            // Camera FPS
+            document.getElementById('camera-fps').textContent = stats.realsense_fps;
+            document.getElementById('camera-status').textContent = data.sensor_health.realsense;
+            pushFps(stats.realsense_fps);
+        }
+
+        function updateStatusCard(id, value) {
+            const el = document.getElementById(id);
+            el.textContent = value;
+            el.className = 'status-card-value';
+            
+            // Add appropriate class based on value
+            if (value === 'RUNNING') {
+                el.classList.add('running');
+            } else if (value === 'STOPPED') {
+                el.classList.add('stopped');
+            } else if (value === 'Good') {
+                el.classList.add('good');
+            } else if (value === 'Warning') {
+                el.classList.add('warning');
+            } else if (value === 'Error') {
+                el.classList.add('error');
+            } else if (value === 'Connected') {
+                el.classList.add('connected');
+            } else if (value === 'Disconnected') {
+                el.classList.add('disconnected');
+            }
+        }
+
+        // Update dashboard
+        function updateDashboard() {
+            if (!isAuthenticatedSession()) return; // Don't update if not authenticated
+            const data = generateTelemetryData();
+            telemetryData = data;
+            
+            if (lidarCanvas && lidarCtx) {
+                drawLidar(data.proximity);
+            }
+            updateStatusIndicators(data);
+            
+            // Update alerts based on status
+            updateAlerts(data);
+            updateQuickStatus(data);
+        }
+
+        function updateQuickStatus(data) {
+            const qs = document.getElementById('q-status'); if (qs) qs.textContent = document.getElementById('status-ready').textContent;
+            const qm = document.getElementById('q-mode'); if (qm) qm.textContent = document.getElementById('status-mode').textContent;
+            const qc = document.getElementById('q-conn'); if (qc) qc.textContent = document.getElementById('status-connection').textContent;
+            const hb = document.getElementById('q-heartbeat'); if (hb) hb.style.opacity = hb.style.opacity === '0.4' ? '1' : '0.4';
+        }
+
+        // Live Logs with filtering
+        const logs = [];
+        let logFilter = 'all';
+        function addLogEntry(level, message) {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+            });
+            logs.unshift({ level, message, time });
+            if (logs.length > 200) logs.pop();
+            renderLogs();
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logs-container');
+            const filtered = logs.filter(l => logFilter === 'all' || l.level === logFilter).slice(0, 50);
+            container.innerHTML = filtered.map(l => `
+                <div class="log-entry ${l.level}"><span class="log-time">[${l.time}]</span><span class="log-message">${l.message}</span></div>
+            `).join('');
+        }
+
+        // Alerts
+        function updateAlerts(data) {
+            const alerts = [];
+            
+            // Check for issues
+            if (data.system_status.proximity_bridge === 'STOPPED') {
+                alerts.push({ level: 'warn', msg: 'Proximity bridge stopped.' });
+            }
+            if (data.sensor_health.rplidar === 'Error') {
+                alerts.push({ level: 'warn', msg: 'LIDAR sync issue detected.' });
+            }
+            if (data.sensor_health.realsense === 'Disconnected') {
+                alerts.push({ level: 'warn', msg: 'RealSense camera disconnected.' });
+            }
+            
+            // Add success message if all good
+            if (alerts.length === 0) {
+                alerts.push({ level: 'success', msg: 'All systems nominal.' });
+            }
+            
+            const container = document.getElementById('alerts-list');
+            container.innerHTML = alerts.map(alert => `
+                <div class="alert-item ${alert.level}">
+                    <span class="alert-icon">${alert.level === 'warn' ? '🔔' : '🟢'}</span>
+                    <span>${alert.msg}</span>
+                </div>
+            `).join('');
+        }
+
+        // Camera view mode
+        document.querySelectorAll('.btn-small').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                const mode = this.textContent.trim();
+                const views = {
+                    'RGB': { icon: '📹', text: 'RealSense RGB Stream' },
+                    'Depth': { icon: '📊', text: 'RealSense Depth Map' },
+                    'IR': { icon: '🌡️', text: 'RealSense IR Stream' }
+                };
+                const view = views[mode];
+                
+                document.getElementById('camera-view').innerHTML = `
+                    <div style="text-align: center; position: relative; z-index: 1;">
+                        <div style="font-size: 48px; opacity: 0.5; margin-bottom: 10px;">${view.icon}</div>
+                        <div>${view.text}</div>
+                    </div>
+                `;
+            });
+        });
+
+        // Logs filter chips
+        document.addEventListener('click', (e) => {
+            const chip = e.target.closest('.chip');
+            if (!chip) return;
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            logFilter = chip.getAttribute('data-level');
+            renderLogs();
+        });
+
+        // FPS sparkline
+        const fpsData = [];
+        function pushFps(v) {
+            fpsData.push(Number(v) || 0);
+            if (fpsData.length > 50) fpsData.shift();
+            drawFpsSparkline();
+        }
+        function drawFpsSparkline() {
+            const canvas = document.getElementById('fps-sparkline');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0,0,w,h);
+            if (fpsData.length < 2) return;
+            const min = Math.min(...fpsData), max = Math.max(...fpsData);
+            const range = Math.max(1, max - min);
+            ctx.strokeStyle = '#00FFFF';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            fpsData.forEach((val, i) => {
+                const x = (i / (fpsData.length - 1)) * (w - 4) + 2;
+                const y = h - ((val - min) / range) * (h - 4) - 2;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        // Continuous animations
+        function animate() {
+            if (isAuthenticatedSession() && telemetryData && telemetryData.proximity && lidarCanvas && lidarCtx) {
+                drawLidar(telemetryData.proximity);
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Initial setup
+        updateDashboard();
+        setInterval(updateDashboard, 2000);
+        
+        // Log messages
+        const logMessages = [
+            { level: 'info', msg: 'Telemetry data received' },
+            { level: 'info', msg: 'Proximity scan complete' },
+            { level: 'info', msg: 'RealSense camera initialized' },
+            { level: 'info', msg: 'System status updated' }
+        ];
+        
+        setInterval(() => {
+            const randomMsg = logMessages[Math.floor(Math.random() * logMessages.length)];
+            addLogEntry(randomMsg.level, randomMsg.msg);
+        }, 3000);
+
+        // --- Crop Monitor Gallery (standalone demo) ---
+        function generatePlaceholderImage(text, width = 320, height = 180) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            const g1 = ctx.createLinearGradient(0, 0, width, height);
+            g1.addColorStop(0, 'rgba(0, 255, 255, 0.15)');
+            g1.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
+            ctx.fillStyle = g1; ctx.fillRect(0, 0, width, height);
+            ctx.strokeStyle = 'rgba(0,255,255,0.25)'; ctx.strokeRect(6, 6, width - 12, height - 12);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 24px Segoe UI, sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(text, width / 2, height / 2);
+            return canvas.toDataURL('image/png');
+        }
+
+        function renderGallery(items) {
+            const grid = document.getElementById('gallery-grid');
+            if (!grid) {
+                // Create on-demand inside modal if not present yet
+                const modalContent = document.querySelector('.gallery-modal-content');
+                if (modalContent && !document.getElementById('gallery-grid')) {
+                    const gridEl = document.createElement('div');
+                    gridEl.id = 'gallery-grid';
+                    gridEl.className = 'gallery-grid';
+                    modalContent.insertBefore(gridEl, modalContent.firstChild);
+                }
+            }
+            const gridTarget = document.getElementById('gallery-grid');
+            if (!gridTarget) return;
+            gridTarget.innerHTML = items.map((it, idx) => `
+                <div class="gallery-item" data-idx="${idx}" data-src="${it.src}" data-caption="${it.caption}">
+                    <img src="${it.src}" alt="${it.caption}">
+                    <span class="gallery-label">${it.time}</span>
+                </div>
+            `).join('');
+        }
+
+        const galleryItems = Array.from({ length: 9 }).map((_, i) => {
+            const ts = new Date(Date.now() - i * 60000);
+            const time = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            return {
+                src: generatePlaceholderImage('CROP ' + String(i + 1).padStart(2, '0')),
+                caption: 'Crop Monitor Capture #' + (i + 1),
+                time
+            };
+        });
+        // Render lazily when opened
+
+        // Modal controls
+        const galleryModal = document.getElementById('gallery-modal');
+        const galleryImg = document.getElementById('gallery-image');
+        const galleryCap = document.getElementById('gallery-caption');
+        const galleryClose = document.getElementById('gallery-close');
+        document.addEventListener('click', (e) => {
+            const item = e.target.closest('.gallery-item');
+            if (!item) return;
+            const src = item.getAttribute('data-src');
+            const caption = item.getAttribute('data-caption');
+            const time = item.querySelector('.gallery-label')?.textContent || '';
+            galleryImg.src = src; galleryCap.textContent = `${caption} • ${time}`;
+            galleryModal.classList.add('open');
+        });
+        // Open gallery button
+        document.getElementById('btn-open-gallery')?.addEventListener('click', () => {
+            if (!document.getElementById('gallery-grid')) renderGallery(galleryItems);
+            galleryModal.classList.add('open');
+        });
+        galleryClose?.addEventListener('click', () => galleryModal.classList.remove('open'));
+        galleryModal?.addEventListener('click', (e) => { if (e.target === galleryModal) galleryModal.classList.remove('open'); });
+    </script>
+</body>
+</html>

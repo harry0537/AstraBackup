@@ -1,0 +1,25 @@
+# Project Astra NZ - V9 Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Core Vision and Image Processing
+pyrealsense2>=2.50.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+
+# Robot Communication
+pymavlink>=2.4.0
+rplidar-roboticia>=0.9.2
+
+# Web Dashboard
+flask>=2.0.0
+flask-cors>=3.0.10
+
+# Image Handling
+Pillow>=9.0.0
+
+# HTTP Requests
+requests>=2.27.0
+
+# Optional but recommended (especially for Windows)
+psutil>=5.9.0  # For better process management and monitoring
+
