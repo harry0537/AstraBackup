@@ -25,6 +25,11 @@ try:
     import pyrealsense2 as rs
     import numpy as np
     import cv2
+    try:
+        from PIL import Image
+        PIL_AVAILABLE = True
+    except ImportError:
+        PIL_AVAILABLE = False
     REALSENSE_AVAILABLE = True
 except ImportError as e:
     print(f"[ERROR] Required libraries not available: {e}")
@@ -327,8 +332,33 @@ class VisionServer:
             rgb_tmp = os.path.join(OUTPUT_DIR, "rgb_latest.jpg.tmp")
             rgb_path = os.path.join(OUTPUT_DIR, "rgb_latest.jpg")
             
-            cv2.imwrite(rgb_tmp, color_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            os.replace(rgb_tmp, rgb_path)
+            # Try OpenCV first, fallback to PIL if OpenCV doesn't support JPEG
+            success = False
+            try:
+                success = cv2.imwrite(rgb_tmp, color_image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if success and os.path.exists(rgb_tmp) and os.path.getsize(rgb_tmp) > 0:
+                    os.replace(rgb_tmp, rgb_path)
+                else:
+                    success = False
+            except:
+                success = False
+            
+            # Fallback to PIL if OpenCV failed
+            if not success and PIL_AVAILABLE:
+                try:
+                    # Convert BGR to RGB for PIL
+                    rgb_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+                    pil_image = Image.fromarray(rgb_image)
+                    pil_image.save(rgb_tmp, 'JPEG', quality=85)
+                    if os.path.exists(rgb_tmp) and os.path.getsize(rgb_tmp) > 0:
+                        os.replace(rgb_tmp, rgb_path)
+                        success = True
+                except Exception as pil_error:
+                    self.log(f"✗ PIL fallback also failed: {pil_error}")
+                    success = False
+            
+            if not success:
+                raise RuntimeError("Failed to write JPEG with both OpenCV and PIL")
             
             # Write metadata
             meta_tmp = os.path.join(OUTPUT_DIR, "rgb_latest.json.tmp")
