@@ -506,7 +506,7 @@ DASHBOARD_HTML = '''
 </head>
 <body>
     <div class="header">
-        <h1>PROJECT ASTRA NZ — Telemetry Dashboard V9</h1>
+        <h1>🚀 ROVER TELEMETRY DASHBOARD</h1>
         <div class="actions">
             <span class="btn" id="metric-uptime" title="Uptime">Uptime: --</span>
             <span class="btn" id="metric-fps" title="RealSense FPS">FPS: --</span>
