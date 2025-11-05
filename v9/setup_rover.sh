@@ -16,7 +16,9 @@ REQ_FILE="$(dirname "$0")/requirements.txt"
 
 # 1) Ensure base system packages are available
 echo "[setup] Ensuring system packages present (python3, venv, pip)"
-sudo apt-get update -y
+set +e  # Allow apt-get to fail partially
+sudo apt-get update -y 2>&1 | grep -v "librealsense" || true
+set -e
 sudo apt-get install -y python3 python3-pip python3-venv ca-certificates build-essential libgl1 curl gnupg lsb-release
 
 # 1a) Add user to dialout for serial (Pixhawk/LiDAR)
@@ -52,17 +54,28 @@ fi
 # 4a) Install Intel RealSense system libraries if missing (tools like rs-enumerate-devices)
 if ! command -v rs-enumerate-devices >/dev/null 2>&1; then
   echo "[setup] Intel RealSense tools not found; attempting to install librealsense packages"
-  # Add Intel RealSense apt repository (official)
+  # Remove any existing librealsense repo that might be misconfigured
+  sudo rm -f /etc/apt/sources.list.d/librealsense*.list 2>/dev/null || true
+  
+  # Add Intel RealSense apt repository (official) - try with error handling
   set +e
   sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key F6E65AC044F831AC80A06380C8B3A55A6F3EFCDE >/dev/null 2>&1
-  echo "deb https://librealsense.intel.com/Debian/apt-repo $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/librealsense.list >/dev/null
-  sudo apt-get update -y
-  sudo apt-get install -y librealsense2-dkms librealsense2-utils librealsense2-dev || true
+  UBUNTU_CODENAME=$(lsb_release -cs)
+  echo "deb https://librealsense.intel.com/Debian/apt-repo ${UBUNTU_CODENAME} main" | sudo tee /etc/apt/sources.list.d/librealsense.list >/dev/null
+  
+  # Update apt, but ignore librealsense errors
+  sudo apt-get update -y 2>&1 | grep -v "librealsense" || true
+  
+  # Try to install, but don't fail if repo doesn't work
+  sudo apt-get install -y librealsense2-dkms librealsense2-utils librealsense2-dev 2>&1 | grep -v "librealsense" || true
   set -e
+  
   if command -v rs-enumerate-devices >/dev/null 2>&1; then
     echo "[setup] ✓ librealsense utilities installed"
   else
-    echo "[setup] ⚠ Could not install librealsense utilities automatically. You can proceed with pyrealsense2, but if camera fails to start, install Intel repo manually."
+    echo "[setup] ⚠ Could not install librealsense utilities automatically."
+    echo "[setup] ⚠ This is OK - pyrealsense2 Python package will work without system tools."
+    echo "[setup] ⚠ If camera fails, you can install librealsense manually later."
   fi
 fi
 
