@@ -10,6 +10,7 @@ import os
 import sys
 import signal
 import json
+from datetime import datetime
 
 # Component definitions (startup order is CRITICAL in V9)
 COMPONENTS = [
@@ -60,30 +61,47 @@ class RoverManager:
     def __init__(self):
         self.processes = {}
         self.running = True
+        self.config = self.load_config()
         
         # Detect Python command
         venv_path = os.path.expanduser("~/rover_venv/bin/python3")
         if os.path.exists(venv_path):
             self.python_cmd = venv_path
-            print("✓ Using virtual environment")
         else:
             self.python_cmd = "python3"
-            print("⚠ Using system Python")
+        
+        os.makedirs('logs', exist_ok=True)
+    
+    def load_config(self):
+        """Load or create default configuration"""
+        config_file = "rover_config_v9.json"
+        default = {
+            "dashboard_ip": "0.0.0.0",
+            "dashboard_port": 8081,
+            "mavlink_port": 14550,
+            "lidar_port": "/dev/ttyUSB0",
+            "pixhawk_port": "/dev/ttyACM0"
+        }
+        
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                    return {**default, **config}
+            except:
+                pass
+        return default
     
     def setup_directories(self):
         """Create necessary directories."""
-        print("\nSetting up directories...")
         dirs = ['/tmp/vision_v9', '/tmp/crop_archive', '/tmp/rover_vision']
         for d in dirs:
             os.makedirs(d, exist_ok=True)
-        print("✓ Directories ready")
     
     def start_component(self, component):
         """Start a single component."""
         name = component['name']
         script = component['script']
-        
-        print(f"\nStarting {name}...")
         
         # Check if already running (cross-platform)
         try:
@@ -91,7 +109,6 @@ class RoverManager:
             result = subprocess.run(['pgrep', '-f', script], 
                                   capture_output=True, text=True, timeout=2)
             if result.returncode == 0:
-                print(f"⚠ {name} is already running")
                 return None
         except (FileNotFoundError, subprocess.TimeoutExpired):
             # pgrep not available (Windows) or timed out - use psutil if available
@@ -101,7 +118,6 @@ class RoverManager:
                     try:
                         cmdline = proc.info.get('cmdline', [])
                         if cmdline and script in ' '.join(cmdline):
-                            print(f"⚠ {name} is already running (PID: {proc.info['pid']})")
                             return None
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
@@ -111,77 +127,161 @@ class RoverManager:
         except Exception:
             pass
         
-        # Start process
+        # Start process with log files (like v8)
         try:
+            log_name = script.replace('.py', '')
+            stdout_file = open(f"logs/{log_name}.out.log", 'a')
+            stderr_file = open(f"logs/{log_name}.err.log", 'a')
+            
+            env = os.environ.copy()
+            env['ASTRA_CONFIG'] = json.dumps(self.config)
+            
+            python_exe = self.python_cmd
             process = subprocess.Popen(
-                [self.python_cmd, script],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                [python_exe, script],
+                stdout=stdout_file,
+                stderr=stderr_file,
+                env=env,
                 preexec_fn=os.setsid if hasattr(os, 'setsid') else None
             )
             
             # Wait a bit and check if it's still running
             time.sleep(2)
             if process.poll() is None:
-                print(f"✓ {name} started (PID: {process.pid})")
+                # Store process info with start time and restarts (like v8)
+                process_info = {
+                    'process': process,
+                    'info': component,
+                    'start_time': datetime.now(),
+                    'restarts': 0,
+                    'stdout': stdout_file,
+                    'stderr': stderr_file
+                }
                 
                 # Additional startup delay
                 if component['startup_delay'] > 0:
-                    print(f"  Waiting {component['startup_delay']}s for initialization...")
                     time.sleep(component['startup_delay'])
                 
                 # Health check
                 if component['health_check']:
                     for _ in range(10):
                         if component['health_check']():
-                            print(f"  ✓ {name} health check passed")
                             break
                         time.sleep(1)
                 
-                return process
+                return process_info
             else:
-                stdout, stderr = process.communicate()
+                stdout_file.close()
+                stderr_file.close()
                 print(f"✗ {name} failed to start")
-                if stderr:
-                    print(f"  Error: {stderr.decode()[:200]}")
                 return None
         except Exception as e:
             print(f"✗ Failed to start {name}: {e}")
             return None
     
+    def monitor(self):
+        """Monitor and auto-restart components (like v8)"""
+        print("\n[Runtime Monitor]")
+        print("=" * 60)
+        print("Press Ctrl+C for graceful shutdown\n")
+        
+        while self.running:
+            # Clear screen (like v8)
+            try:
+                subprocess.run(['clear' if os.name != 'nt' else 'cls'],
+                             shell=True, check=False)
+            except:
+                pass
+            
+            print("PROJECT ASTRA NZ - Component Status V9")
+            print("=" * 60)
+            print(f"{'Component':<20} {'Status':<12} {'PID':<8} {'Uptime':<12} {'Restarts'}")
+            print("-" * 60)
+            
+            for comp_id, proc_info in self.processes.items():
+                name = proc_info['info']['name']
+                process = proc_info['process']
+                
+                if process.poll() is None:
+                    status = "✓ RUNNING"
+                    pid = str(process.pid)
+                    uptime = str(datetime.now() - proc_info['start_time']).split('.')[0]
+                    restarts = str(proc_info['restarts'])
+                else:
+                    status = "✗ STOPPED"
+                    pid = uptime = "-"
+                    restarts = str(proc_info['restarts'])
+                    
+                    # Auto-restart critical components (like v8)
+                    if proc_info['info']['critical'] and proc_info['restarts'] < 3:
+                        print(f"\n⚠ Restarting {name}...")
+                        
+                        # Close old log files before restarting
+                        for handle in ['stdout', 'stderr']:
+                            if handle in proc_info:
+                                try:
+                                    proc_info[handle].close()
+                                except:
+                                    pass
+                        
+                        # Start new component instance
+                        new_proc_info = self.start_component(proc_info['info'])
+                        if new_proc_info:
+                            new_proc_info['restarts'] = proc_info['restarts'] + 1
+                            self.processes[comp_id] = new_proc_info
+                            continue
+                
+                print(f"{name:<20} {status:<12} {pid:<8} {uptime:<12} {restarts}")
+            
+            print("-" * 60)
+            
+            # Show proximity data if available (like v8)
+            try:
+                with open('/tmp/proximity_v9.json', 'r') as f:
+                    prox = json.load(f)
+                sectors = prox.get('sectors_cm', [])
+                min_cm = prox.get('min_cm', 0)
+                tx = prox.get('messages_sent', 0)
+                age = time.time() - prox.get('timestamp', time.time())
+                
+                if sectors:
+                    print(f"\nProximity: {' '.join(f'{int(x):4d}' for x in sectors)} cm")
+                    print(f"Closest: {min_cm}cm | Age: {age:.1f}s | TX: {tx}")
+            except:
+                pass
+            
+            print(f"\nDashboard (Local): http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+            print(f"Dashboard (Network): http://{self.config.get('rover_ip', 'ROVER_IP')}:{self.config['dashboard_port']}")
+            print("Press Ctrl+C for graceful shutdown")
+            
+            time.sleep(5)
+    
     def stop_all(self):
-        """Stop all running components."""
-        print("\n\nStopping all V9 components...")
+        """Graceful shutdown (like v8)"""
+        print("\n\nShutting down...")
+        self.running = False
         
-        # Stop in reverse order
-        for component in reversed(COMPONENTS):
-            name = component['name']
-            if component['id'] in self.processes:
-                process = self.processes[component['id']]
+        for comp_id, proc_info in self.processes.items():
+            process = proc_info['process']
+            if process.poll() is None:
+                print(f"  Stopping {proc_info['info']['name']}...", end='')
+                process.terminate()
                 try:
-                    print(f"Stopping {name}...")
-                    if hasattr(os, 'killpg'):
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                    else:
-                        process.terminate()
                     process.wait(timeout=5)
-                    print(f"✓ {name} stopped")
+                    print(" ✓")
                 except subprocess.TimeoutExpired:
-                    print(f"⚠ {name} did not stop gracefully, forcing...")
-                    if hasattr(os, 'killpg'):
-                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    else:
-                        process.kill()
-                except Exception as e:
-                    print(f"⚠ Error stopping {name}: {e}")
+                    process.kill()
+                    print(" (forced)")
+            
+            # Close log files
+            for handle in ['stdout', 'stderr']:
+                if handle in proc_info:
+                    try:
+                        proc_info[handle].close()
+                    except:
+                        pass
         
-        # Cleanup any remaining processes
-        try:
-            subprocess.run(['pkill', '-f', '_v9.py'], timeout=2)
-        except:
-            pass
-        
-        print("✓ All components stopped")
+        print("\n✓ Shutdown complete")
     
     def run(self):
         """Main execution."""
@@ -189,7 +289,7 @@ class RoverManager:
         print("PROJECT ASTRA NZ - ROVER MANAGER V9")
         print("=" * 60)
         
-        # Setup
+        # Setup directories
         self.setup_directories()
         
         # Check if anything is already running (cross-platform)
@@ -223,64 +323,56 @@ class RoverManager:
         except Exception:
             pass
         
+        # Show which Python executable is being used (like v8)
+        venv_path = os.path.expanduser("~/rover_venv/bin/python3")
+        if os.path.exists(venv_path):
+            print(f"🐍 Using Virtual Environment: {self.python_cmd}")
+        else:
+            print(f"🐍 Using System Python: {self.python_cmd}")
+            print("⚠ WARNING: Virtual environment not found, using system Python")
+        
+        print(f"Dashboard (Local): http://{self.config['dashboard_ip']}:{self.config['dashboard_port']}")
+        print(f"Dashboard (Network): http://{self.config.get('rover_ip', 'ROVER_IP')}:{self.config['dashboard_port']}")
+        print("=" * 60)
+        
         print("\n" + "=" * 60)
         print("STARTING V9 COMPONENTS (in critical order)")
         print("=" * 60)
         
         # Start all components in order
+        print("\n[Starting Components]")
+        print("-" * 40)
         failed_critical = False
         for component in COMPONENTS:
-            process = self.start_component(component)
+            print(f"  Starting {component['name']}...", end='')
+            process_info = self.start_component(component)
             
-            if process:
-                self.processes[component['id']] = process
-            elif component['critical']:
-                print(f"\n✗ CRITICAL: {component['name']} failed to start")
-                print("Cannot continue without critical component")
-                failed_critical = True
-                break
-        
-        if failed_critical:
-            self.stop_all()
-            return False
-        
-        # Startup complete
-        print("\n" + "=" * 60)
-        print("V9 STARTUP COMPLETE")
-        print("=" * 60)
-        print("\nActive Components:")
-        for comp_id, process in self.processes.items():
-            comp = next(c for c in COMPONENTS if c['id'] == comp_id)
-            print(f"  • {comp['name']} (PID: {process.pid})")
-        
-        print("\nAccess Points:")
-        print("  • Dashboard: http://10.244.77.186:8081")
-        print("  • Local: http://localhost:8081")
-        
-        print("\nMonitoring:")
-        print("  • Health Check: ./check_v9_health.sh")
-        print("  • Status: cat /tmp/vision_v9/status.json")
-        
-        print("\nPress Ctrl+C to stop all components...")
-        
-        # Keep running and monitor
-        try:
-            while self.running:
-                time.sleep(5)
-                
-                # Check Vision Server (critical)
-                vs_process = self.processes.get(196)
-                if vs_process and vs_process.poll() is not None:
-                    print("\n✗ CRITICAL: Vision Server stopped unexpectedly!")
+            if process_info:
+                self.processes[component['id']] = process_info
+                print(" ✓")
+                time.sleep(2)
+            else:
+                print(" ✗")
+                if component['critical']:
+                    print(f"\n✗ Critical component failed!")
+                    failed_critical = True
                     break
         
-        except KeyboardInterrupt:
-            print("\n\n⚠ Shutdown requested")
+        if failed_critical:
+            self.shutdown()
+            return False
         
-        finally:
-            self.stop_all()
+        # Monitor (like v8)
+        try:
+            self.monitor()
+        except KeyboardInterrupt:
+            self.shutdown()
         
         return True
+    
+    def shutdown(self):
+        """Alias for stop_all for consistency"""
+        self.stop_all()
 
 
 def main():
