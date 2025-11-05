@@ -39,17 +39,18 @@ STATUS_FILE = os.path.join(OUTPUT_DIR, "status.json")
 LOG_FILE = os.path.join(OUTPUT_DIR, "vision_server.log")
 
 # Stream configuration (can be loaded from config file)
-RGB_WIDTH = 640
-RGB_HEIGHT = 480
-RGB_FPS = 15
+# Use 424x240 for RGB to match depth resolution (compatible with all streams)
+RGB_WIDTH = 424
+RGB_HEIGHT = 240
+RGB_FPS = 30  # 15fps not available at 640x480, use 30fps at 424x240
 DEPTH_WIDTH = 424
 DEPTH_HEIGHT = 240
-DEPTH_FPS = 15
+DEPTH_FPS = 30  # Match RGB FPS for better sync
 
-# Infrared stream (mono) - enable single IR stream
-IR_WIDTH = 640
-IR_HEIGHT = 480
-IR_FPS = 15
+# Infrared stream (mono) - use same resolution as depth for compatibility
+IR_WIDTH = 424
+IR_HEIGHT = 240
+IR_FPS = 30  # Match other streams
 
 # Exposure control
 EXPOSURE_US = 6000.0
