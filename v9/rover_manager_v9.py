@@ -92,6 +92,152 @@ class RoverManager:
                 pass
         return default
     
+    def cleanup_orphaned_processes(self):
+        """Kill any orphaned V9 processes before starting new ones."""
+        print("\n[Cleanup] Checking for orphaned V9 processes...")
+        
+        # Get current PID to avoid killing ourselves
+        current_pid = os.getpid()
+        
+        # List of V9 scripts to check for (excluding manager - we'll handle it separately)
+        v9_scripts = [
+            'realsense_vision_server_v9.py',
+            'combo_proximity_bridge_v9.py',
+            'simple_crop_monitor_v9.py',
+            'telemetry_dashboard_v9.py',
+            'data_relay_v9.py'
+        ]
+        
+        killed_count = 0
+        
+        # First, kill old manager processes (but not this one)
+        try:
+            # Get all rover_manager_v9.py PIDs
+            result = subprocess.run(
+                ['pgrep', '-f', 'rover_manager_v9.py'],
+                capture_output=True,
+                timeout=2,
+                text=True
+            )
+            if result.returncode == 0:
+                pids = [int(p.strip()) for p in result.stdout.strip().split('\n') if p.strip()]
+                for pid in pids:
+                    if pid != current_pid:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                            killed_count += 1
+                        except:
+                            pass
+                if killed_count > 0:
+                    print(f"  ✓ Sent SIGTERM to {killed_count} old manager process(es)")
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+        
+        # Kill all other _v9.py processes gracefully (excluding manager)
+        try:
+            # Use pgrep to get PIDs, then kill each one except current
+            result = subprocess.run(
+                ['pgrep', '-f', '_v9.py'],
+                capture_output=True,
+                timeout=2,
+                text=True
+            )
+            if result.returncode == 0:
+                pids = [int(p.strip()) for p in result.stdout.strip().split('\n') if p.strip()]
+                killed_this_round = 0
+                for pid in pids:
+                    if pid != current_pid:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                            killed_this_round += 1
+                        except:
+                            pass
+                if killed_this_round > 0:
+                    killed_count += killed_this_round
+                    print(f"  ✓ Sent SIGTERM to {killed_this_round} orphaned V9 process(es)")
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            # Fallback: use pkill (will also kill current process, but we'll restart anyway)
+            try:
+                result = subprocess.run(
+                    ['pkill', '-f', '_v9.py'],
+                    capture_output=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    killed_count += 1
+                    print("  ✓ Sent SIGTERM to _v9.py processes")
+            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+                pass
+        
+        # Wait a moment for graceful shutdown
+        if killed_count > 0:
+            time.sleep(2)
+            
+            # Force kill any remaining processes (excluding current)
+            try:
+                result = subprocess.run(
+                    ['pgrep', '-f', '_v9.py'],
+                    capture_output=True,
+                    timeout=2,
+                    text=True
+                )
+                if result.returncode == 0:
+                    pids = [int(p.strip()) for p in result.stdout.strip().split('\n') if p.strip()]
+                    force_killed = 0
+                    for pid in pids:
+                        if pid != current_pid:
+                            try:
+                                os.kill(pid, signal.SIGKILL)
+                                force_killed += 1
+                            except:
+                                pass
+                    if force_killed > 0:
+                        print(f"  ✓ Force killed {force_killed} remaining V9 process(es)")
+            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+                # Fallback: use pkill -9
+                try:
+                    subprocess.run(['pkill', '-9', '-f', '_v9.py'], capture_output=True, timeout=2)
+                except:
+                    pass
+        
+        # Verify cleanup using ps/grep
+        try:
+            result = subprocess.run(
+                ['ps', 'aux'],
+                capture_output=True,
+                timeout=2,
+                text=True
+            )
+            if result.returncode == 0:
+                v9_processes = [line for line in result.stdout.split('\n') if '_v9.py' in line and 'grep' not in line]
+                if v9_processes:
+                    print(f"  ⚠ Warning: {len(v9_processes)} V9 process(es) still running:")
+                    for proc in v9_processes[:3]:  # Show first 3
+                        print(f"    {proc[:80]}")
+                else:
+                    print("  ✓ No orphaned V9 processes found")
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            # Fallback: try using pgrep
+            try:
+                result = subprocess.run(
+                    ['pgrep', '-f', '_v9.py'],
+                    capture_output=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    pids = result.stdout.decode().strip().split('\n')
+                    pids = [p for p in pids if p]
+                    if pids:
+                        print(f"  ⚠ Warning: Found {len(pids)} V9 process(es) (PIDs: {', '.join(pids[:5])})")
+                    else:
+                        print("  ✓ No orphaned V9 processes found")
+                else:
+                    print("  ✓ No orphaned V9 processes found")
+            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+                print("  ⚠ Could not verify cleanup (ps/pgrep not available)")
+        
+        print()
+    
     def setup_directories(self):
         """Create necessary directories."""
         dirs = ['/tmp/vision_v9', '/tmp/crop_archive', '/tmp/rover_vision']
@@ -240,21 +386,24 @@ class RoverManager:
             time.sleep(5)
     
     def stop_all(self):
-        """Graceful shutdown (like v8)"""
+        """Graceful shutdown (like v8) - stop managed processes and kill any orphans"""
         print("\n\nShutting down...")
         self.running = False
         
+        # First, gracefully stop all managed processes
         for comp_id, proc_info in self.processes.items():
             process = proc_info['process']
             if process.poll() is None:
                 print(f"  Stopping {proc_info['info']['name']}...", end='')
-                process.terminate()
                 try:
+                    process.terminate()
                     process.wait(timeout=5)
                     print(" ✓")
                 except subprocess.TimeoutExpired:
                     process.kill()
                     print(" (forced)")
+                except:
+                    print(" (error)")
             
             # Close log files
             for handle in ['stdout', 'stderr']:
@@ -264,6 +413,21 @@ class RoverManager:
                     except:
                         pass
         
+        # Then kill any remaining orphaned V9 processes (like LIDAR that might keep spinning)
+        print("  Cleaning up orphaned processes...", end='')
+        try:
+            # Graceful kill first
+            subprocess.run(['pkill', '-f', '_v9.py'], capture_output=True, timeout=2)
+            time.sleep(1)
+            # Force kill if still running
+            result = subprocess.run(['pkill', '-9', '-f', '_v9.py'], capture_output=True, timeout=2)
+            if result.returncode == 0:
+                print(" ✓")
+            else:
+                print(" (none found)")
+        except:
+            print(" (error)")
+        
         print("\n✓ Shutdown complete")
     
     def run(self):
@@ -271,6 +435,9 @@ class RoverManager:
         print("=" * 60)
         print("PROJECT ASTRA NZ - ROVER MANAGER V9")
         print("=" * 60)
+        
+        # Cleanup orphaned processes FIRST (before starting anything)
+        self.cleanup_orphaned_processes()
         
         # Setup directories
         self.setup_directories()
@@ -320,8 +487,15 @@ class RoverManager:
         return True
     
     def shutdown(self):
-        """Alias for stop_all for consistency"""
+        """Graceful shutdown - stop all managed processes and kill orphans"""
         self.stop_all()
+        # Also clean up any orphaned processes that might have been spawned
+        try:
+            subprocess.run(['pkill', '-f', '_v9.py'], capture_output=True, timeout=2)
+            time.sleep(1)
+            subprocess.run(['pkill', '-9', '-f', '_v9.py'], capture_output=True, timeout=2)
+        except:
+            pass
 
 
 def main():
