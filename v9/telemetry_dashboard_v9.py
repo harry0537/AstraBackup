@@ -95,20 +95,26 @@ DASHBOARD_HTML = '''
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #0f1115;
-            --bg-elev: #151922;
-            --card: #181c26;
-            --card-border: rgba(255,255,255,0.06);
-            --text: #e6eaf2;
-            --muted: #98a2b3;
-            --accent: #6ee7b7; /* mint */
-            --accent-strong: #34d399;
-            --ok: #22c55e;
-            --warn: #f59e0b;
-            --error: #ef4444;
-            --chip: rgba(255,255,255,0.06);
-            --chip-border: rgba(255,255,255,0.08);
-            --shadow: 0 8px 24px rgba(0,0,0,0.35);
+            --bg: #0F2845;
+            --bg-elev: #1A3A5A;
+            --card: #1E3A5F;
+            --card-border: rgba(0, 255, 255, 0.35);
+            --text: #FFFFFF;
+            --muted: rgba(255, 255, 255, 0.75);
+            --accent: #00FFFF; /* cyan */
+            --accent-strong: #00CCCC;
+            --cyan: #00FFFF;
+            --cyan-glow: rgba(0, 255, 255, 0.6);
+            --cyan-light: rgba(0, 255, 255, 0.15);
+            --ok: #22C55E;
+            --warn: #F59E0B;
+            --error: #EF4444;
+            --green: #22C55E;
+            --orange: #F59E0B;
+            --red: #EF4444;
+            --chip: rgba(0, 255, 255, 0.12);
+            --chip-border: rgba(0, 255, 255, 0.25);
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
             --radius: 14px;
             --radius-sm: 10px;
         }
@@ -118,19 +124,12 @@ DASHBOARD_HTML = '''
             --accent-strong: #f43f5e;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
-            background: 
-                        radial-gradient(1200px 600px at 20% -10%, rgba(52, 211, 153, 0.08), transparent 60%),
-                        radial-gradient(1400px 700px at 120% 10%, rgba(99, 102, 241, 0.06), transparent 60%),
-                        repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 24px),
-                        repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 24px),
-                        var(--bg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%);
             color: var(--text);
-            padding: 10px;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+            padding: 16px;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
         .header {
             width: 100%;
@@ -139,25 +138,28 @@ DASHBOARD_HTML = '''
             align-items: center;
             justify-content: space-between;
             padding: 8px 16px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-            border: 1px solid var(--card-border);
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.35);
             border-radius: var(--radius);
-            box-shadow: var(--shadow);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
             flex-shrink: 0;
         }
         .header h1 {
-            font-size: 16px;
-            letter-spacing: 0.08em;
+            font-size: 20px;
+            letter-spacing: 0.15em;
             font-weight: 700;
             margin: 0;
+            color: var(--cyan);
+            text-shadow: 0 0 20px var(--cyan-glow);
         }
         #timestamp {
-            background: rgba(255,255,255,0.06);
+            background: rgba(0, 255, 255, 0.12);
             color: var(--text);
-            padding: 4px 8px;
-            border-radius: 999px;
-            font-size: 11px;
-            border: 1px solid var(--card-border);
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            border: 1px solid var(--cyan);
+            font-weight: 700;
         }
         .actions {
             display: flex;
@@ -266,50 +268,67 @@ DASHBOARD_HTML = '''
             height: 100%;
         }
         .panel {
-            background: var(--card);
-            border: 1px solid var(--card-border);
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
             border-radius: var(--radius);
-            padding: 10px;
-            box-shadow: var(--shadow);
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 255, 0.2);
             position: relative;
             overflow: hidden;
             display: flex;
             flex-direction: column;
             align-items: center;
+            transition: all 0.3s ease;
+        }
+        .panel:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 255, 255, 0.35);
+            transform: translateY(-2px);
         }
         .panel:before {
             content: "";
             position: absolute;
-            inset: -1px;
-            border-radius: inherit;
-            background: linear-gradient(120deg, rgba(255,255,255,0.06), transparent 40%, var(--accent) 50%, transparent 60%, rgba(255,255,255,0.06));
-            filter: blur(8px);
-            opacity: 0.35;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+            animation: shine 4s infinite;
             pointer-events: none;
         }
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
         .panel h2 {
-            font-size: 12px;
-            margin-bottom: 8px;
-            color: var(--text);
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--cyan);
             font-weight: 700;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px var(--cyan-glow);
         }
         .radar-container {
             position: relative;
             width: 280px;
             height: 280px;
+            min-height: 280px;
             margin: 0 auto;
             border-radius: 50%;
-            border: 1px solid var(--card-border);
-            background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 60%, transparent 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.12) 0%, transparent 70%);
             box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         .radar-container:after {
             content: "";
             position: absolute;
             inset: -6px;
             border-radius: 50%;
-            background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.0) 260deg, var(--accent) 300deg, transparent 360deg);
+            background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.0) 260deg, var(--cyan) 300deg, transparent 360deg);
             animation: spin 6s linear infinite;
             filter: blur(1px);
             opacity: 0.35;
@@ -381,9 +400,10 @@ DASHBOARD_HTML = '''
             font-size: 11px;
             white-space: nowrap;
         }
-        .status-ok { color: var(--ok); background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.18); }
-        .status-warning { color: var(--warn); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.18); }
-        .status-error { color: var(--error); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.18); }
+        .status-ok { color: var(--green); background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.18); }
+        .status-warning { color: var(--orange); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.18); }
+        .status-error { color: var(--red); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.18); }
+        .status-value { background: rgba(0, 255, 255, 0.15); border: 1px solid var(--cyan); }
         .proximity-values {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -892,11 +912,33 @@ DASHBOARD_HTML = '''
         // Update every 1 second
         setInterval(updateDashboard, 1000);
 
-        // Footer credit
+        // Footer credit (matching standalone design)
         (function(){
             const footer = document.createElement('div');
-            footer.style.position='fixed'; footer.style.bottom='8px'; footer.style.right='12px'; footer.style.fontSize='11px'; footer.style.color='rgba(255,255,255,0.5)';
-            footer.textContent = 'Developed by Harinder Singh | Project Astra NZ';
+            footer.style.position='fixed'; 
+            footer.style.bottom='12px'; 
+            footer.style.right='12px'; 
+            footer.style.padding='6px 12px';
+            footer.style.background='rgba(0, 0, 0, 0.6)';
+            footer.style.border='1px solid rgba(0, 255, 255, 0.2)';
+            footer.style.borderRadius='6px';
+            footer.style.fontSize='11px';
+            footer.style.color='rgba(255, 255, 255, 0.7)';
+            footer.style.fontWeight='500';
+            footer.style.letterSpacing='0.05em';
+            footer.style.zIndex='1000';
+            footer.style.backdropFilter='blur(4px)';
+            footer.textContent = 'Developed by Harinder Singh';
+            footer.addEventListener('mouseenter', () => {
+                footer.style.background='rgba(0, 0, 0, 0.8)';
+                footer.style.borderColor='rgba(0, 255, 255, 0.4)';
+                footer.style.color='rgba(255, 255, 255, 0.9)';
+            });
+            footer.addEventListener('mouseleave', () => {
+                footer.style.background='rgba(0, 0, 0, 0.6)';
+                footer.style.borderColor='rgba(0, 255, 255, 0.2)';
+                footer.style.color='rgba(255, 255, 255, 0.7)';
+            });
             document.body.appendChild(footer);
         })();
 
@@ -1028,23 +1070,40 @@ LOGIN_HTML = '''
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Login - Astra Dashboard</title>
 <style>
-body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0f1115; color:#e6eaf2; display:grid; place-items:center; height:100vh;}
-.card{background:#181c26; border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:24px; width:320px; box-shadow:0 8px 24px rgba(0,0,0,0.35)}
-input{width:100%; padding:10px 12px; margin:8px 0; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#10141c; color:#e6eaf2}
-button{width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#6ee7b7; color:#0f1115; font-weight:700; cursor:pointer}
-a{color:#6ee7b7; text-decoration:none}
-.muted{color:#98a2b3; font-size:12px;}
+:root {
+    --bg: #0F2845;
+    --card: #1E3A5F;
+    --text: #FFFFFF;
+    --cyan: #00FFFF;
+    --cyan-glow: rgba(0, 255, 255, 0.6);
+    --muted: rgba(255, 255, 255, 0.75);
+    --red: #EF4444;
+}
+body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%); color:var(--text); display:grid; place-items:center; height:100vh; margin:0;}
+.card{background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.95) 100%); border:2px solid rgba(0, 255, 255, 0.4); border-radius:16px; padding:32px; width:420px; max-width:90vw; box-shadow:0 8px 32px rgba(0,0,0,0.5), 0 0 40px rgba(0,255,255,0.2);}
+.login-vehicle-image{width:100%; max-width:320px; height:auto; margin:0 auto 20px; display:block; filter:drop-shadow(0 0 20px rgba(0,255,255,0.4)); border-radius:8px; object-fit:contain;}
+.card h2{font-size:24px; font-weight:700; color:var(--cyan); text-align:center; margin-bottom:8px; text-shadow:0 0 15px var(--cyan-glow);}
+.card .subtitle{text-align:center; color:var(--muted); font-size:13px; margin-bottom:24px;}
+input{width:100%; padding:12px 16px; margin:8px 0; border-radius:10px; border:1px solid rgba(0,255,255,0.35); background:rgba(15,40,69,0.7); color:var(--text); font-size:14px; font-family:inherit; transition:all 0.2s;}
+input:focus{outline:none; border-color:var(--cyan); box-shadow:0 0 15px rgba(0,255,255,0.4); background:rgba(15,40,69,0.85);}
+button{width:100%; padding:12px; border-radius:10px; border:none; background:linear-gradient(135deg, var(--cyan) 0%, #00CCCC 100%); color:#0F2845; font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; box-shadow:0 4px 12px rgba(0,255,255,0.4);}
+button:hover{transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,255,255,0.5); background:linear-gradient(135deg, #00FFFF 0%, #00DDDD 100%);}
+a{color:var(--cyan); text-decoration:none}
+.muted{color:var(--muted); font-size:12px;}
+.login-hint{text-align:center; color:var(--muted); font-size:12px; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1);}
 </style></head>
 <body>
   <div class="card">
-    <h3 style="margin:0 0 12px 0;">Astra Dashboard</h3>
+    <img src="/static/rover4.webp" alt="Autonomous Rover" class="login-vehicle-image" onerror="this.style.display='none'">
+    <h2>🚀 Astra Dashboard</h2>
+    <div class="subtitle">Project Astra NZ - V9</div>
     <form method="post" action="/login">
-      <input name="username" placeholder="Username" required>
-      <input name="password" type="password" placeholder="Password" required>
-      <button type="submit">Sign in</button>
+      <input name="username" placeholder="Username" required autocomplete="username">
+      <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
+      <button type="submit">Sign In</button>
     </form>
-    <div class="muted" style="margin-top:10px;">Default admin: admin / admin</div>
-    <div style="margin-top:10px"><a href="/signup">Request admin signup</a></div>
+    <div class="login-hint">Developed by Harinder Singh</div>
+    <div class="muted" style="margin-top:10px; text-align:center;"><a href="/signup">Request admin signup</a></div>
   </div>
 </body></html>
 '''
@@ -1099,6 +1158,16 @@ def signup():
             save_users(users)
             return redirect('/login')
     return render_template_string(SIGNUP_HTML)
+
+@app.route('/static/rover4.webp')
+def serve_rover_image():
+    """Serve the rover image for login page"""
+    from flask import send_from_directory
+    import os
+    rover_path = os.path.join(os.path.dirname(__file__), 'rover4.webp')
+    if os.path.exists(rover_path):
+        return send_from_directory(os.path.dirname(rover_path), 'rover4.webp')
+    return "Image not found", 404
 
 @app.route('/api/telemetry')
 def get_telemetry():
