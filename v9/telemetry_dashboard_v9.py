@@ -1168,7 +1168,7 @@ DASHBOARD_HTML = '''
                         <div class="camera-view-mode">
                             <button class="btn-small active" id="btn-rgb">RGB</button>
                             <button class="btn-small" id="btn-depth">Depth</button>
-                            <button class="btn-small" id="btn-ir">IR</button>
+                            <button class="btn-small" id="btn-obj-detect">Object Detection</button>
                             <span style="flex:1"></span>
                             <button class="btn-small" id="btn-open-gallery">Open Gallery</button>
                         </div>
@@ -1628,7 +1628,7 @@ DASHBOARD_HTML = '''
         let currentStream = 'rgb';
         const btnRgb = document.getElementById('btn-rgb');
         const btnDepth = document.getElementById('btn-depth');
-        const btnIr = document.getElementById('btn-ir');
+        const btnObjDetect = document.getElementById('btn-obj-detect');
         const cameraStream = document.getElementById('camera-stream');
         const cameraPlaceholder = document.getElementById('camera-placeholder');
         
@@ -1636,7 +1636,7 @@ DASHBOARD_HTML = '''
             if (!cameraStream) return;
             let url = '/api/stream';
             if (currentStream === 'depth') url = '/api/stream/depth';
-            else if (currentStream === 'ir') url = '/api/stream/ir';
+            else if (currentStream === 'obj-detect') url = '/api/stream/obj-detect';
             
             // Show placeholder while loading
             if (cameraPlaceholder) {
@@ -1720,10 +1720,10 @@ DASHBOARD_HTML = '''
             btnDepth.classList.add('active');
             updateCameraStream();
         });
-        btnIr?.addEventListener('click', () => {
-            currentStream = 'ir';
+        btnObjDetect?.addEventListener('click', () => {
+            currentStream = 'obj-detect';
             document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
-            btnIr.classList.add('active');
+            btnObjDetect.classList.add('active');
             updateCameraStream();
         });
         
@@ -2111,12 +2111,12 @@ def api_stream_depth():
         return "No depth stream", 404
     return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/api/stream/ir')
-def api_stream_ir():
+@app.route('/api/stream/obj-detect')
+def api_stream_obj_detect():
     from flask import Response
-    shared = '/tmp/vision_v9/ir_latest.jpg'
+    shared = '/tmp/vision_v9/obj_detect_latest.jpg'
     if not os.path.exists(shared):
-        return "No IR stream", 404
+        return "No object detection stream", 404
     return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/crop/gallery')
