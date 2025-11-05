@@ -99,33 +99,12 @@ class RoverManager:
             os.makedirs(d, exist_ok=True)
     
     def start_component(self, component):
-        """Start a single component."""
+        """Start a single component (like v8 format)."""
         name = component['name']
         script = component['script']
         
-        # Check if already running (cross-platform)
-        try:
-            # Try Unix pgrep first
-            result = subprocess.run(['pgrep', '-f', script], 
-                                  capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                return None
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            # pgrep not available (Windows) or timed out - use psutil if available
-            try:
-                import psutil
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                    try:
-                        cmdline = proc.info.get('cmdline', [])
-                        if cmdline and script in ' '.join(cmdline):
-                            return None
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-            except ImportError:
-                # psutil not available, skip check
-                pass
-        except Exception:
-            pass
+        if not os.path.exists(script):
+            return False
         
         # Start process with log files (like v8)
         try:
@@ -137,6 +116,8 @@ class RoverManager:
             env['ASTRA_CONFIG'] = json.dumps(self.config)
             
             python_exe = self.python_cmd
+            print(f"  → Starting {name} with {python_exe}")
+            
             process = subprocess.Popen(
                 [python_exe, script],
                 stdout=stdout_file,
@@ -145,18 +126,20 @@ class RoverManager:
                 preexec_fn=os.setsid if hasattr(os, 'setsid') else None
             )
             
+            # Store process info with start time and restarts (like v8)
+            process_info = {
+                'process': process,
+                'info': component,
+                'start_time': datetime.now(),
+                'restarts': 0,
+                'stdout': stdout_file,
+                'stderr': stderr_file
+            }
+            
             # Wait a bit and check if it's still running
             time.sleep(2)
             if process.poll() is None:
-                # Store process info with start time and restarts (like v8)
-                process_info = {
-                    'process': process,
-                    'info': component,
-                    'start_time': datetime.now(),
-                    'restarts': 0,
-                    'stdout': stdout_file,
-                    'stderr': stderr_file
-                }
+                print(f"  ✓ {name} started (PID: {process.pid})")
                 
                 # Additional startup delay
                 if component['startup_delay'] > 0:
@@ -173,11 +156,11 @@ class RoverManager:
             else:
                 stdout_file.close()
                 stderr_file.close()
-                print(f"✗ {name} failed to start")
-                return None
+                print(f"  ✗ Failed to start {name}")
+                return False
         except Exception as e:
-            print(f"✗ Failed to start {name}: {e}")
-            return None
+            print(f"  ✗ Failed to start {name}: {e}")
+            return False
     
     def monitor(self):
         """Monitor and auto-restart components (like v8)"""
@@ -292,37 +275,6 @@ class RoverManager:
         # Setup directories
         self.setup_directories()
         
-        # Check if anything is already running (cross-platform)
-        try:
-            result = subprocess.run(['pgrep', '-f', '_v9.py'], 
-                                  capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                print("\n⚠ V9 components are already running!")
-                print("To stop: ./stop_rover_v9.sh or python3 rover_manager_v9.py --stop")
-                return False
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            # pgrep not available (Windows) - try psutil
-            try:
-                import psutil
-                v9_running = False
-                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                    try:
-                        cmdline = proc.info.get('cmdline', [])
-                        if cmdline and '_v9.py' in ' '.join(cmdline):
-                            v9_running = True
-                            break
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-                if v9_running:
-                    print("\n⚠ V9 components are already running!")
-                    print("To stop: python3 rover_manager_v9.py --stop")
-                    return False
-            except ImportError:
-                # psutil not available, continue anyway
-                pass
-        except Exception:
-            pass
-        
         # Show which Python executable is being used (like v8)
         venv_path = os.path.expanduser("~/rover_venv/bin/python3")
         if os.path.exists(venv_path):
@@ -339,20 +291,17 @@ class RoverManager:
         print("STARTING V9 COMPONENTS (in critical order)")
         print("=" * 60)
         
-        # Start all components in order
+        # Start all components in order (like v8)
         print("\n[Starting Components]")
         print("-" * 40)
         failed_critical = False
         for component in COMPONENTS:
-            print(f"  Starting {component['name']}...", end='')
             process_info = self.start_component(component)
             
             if process_info:
                 self.processes[component['id']] = process_info
-                print(" ✓")
                 time.sleep(2)
             else:
-                print(" ✗")
                 if component['critical']:
                     print(f"\n✗ Critical component failed!")
                     failed_critical = True

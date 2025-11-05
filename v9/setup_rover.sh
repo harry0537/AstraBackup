@@ -16,9 +16,15 @@ REQ_FILE="$(dirname "$0")/requirements.txt"
 
 # 1) Ensure base system packages are available
 echo "[setup] Ensuring system packages present (python3, venv, pip)"
-set +e  # Allow apt-get to fail partially
-sudo apt-get update -y 2>&1 | grep -v "librealsense" || true
+
+# Remove any stale librealsense repo that might cause errors
+sudo rm -f /etc/apt/sources.list.d/librealsense*.list 2>/dev/null || true
+
+# Update apt, ignoring any librealsense errors
+set +e
+sudo apt-get update -y 2>&1 | grep -v -E "(librealsense|NOSPLIT)" || true
 set -e
+
 sudo apt-get install -y python3 python3-pip python3-venv ca-certificates build-essential libgl1 curl gnupg lsb-release
 
 # 1a) Add user to dialout for serial (Pixhawk/LiDAR)
