@@ -89,39 +89,591 @@ DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Project Astra NZ - Telemetry Dashboard V9</title>
+    <title>Rover Telemetry Dashboard - Project Astra NZ</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg: #0F2845;
-            --bg-elev: #1A3A5A;
             --card: #1E3A5F;
-            --card-border: rgba(0, 255, 255, 0.35);
             --text: #FFFFFF;
-            --muted: rgba(255, 255, 255, 0.75);
-            --accent: #00FFFF; /* cyan */
-            --accent-strong: #00CCCC;
             --cyan: #00FFFF;
             --cyan-glow: rgba(0, 255, 255, 0.6);
             --cyan-light: rgba(0, 255, 255, 0.15);
-            --ok: #22C55E;
-            --warn: #F59E0B;
-            --error: #EF4444;
             --green: #22C55E;
             --orange: #F59E0B;
             --red: #EF4444;
-            --chip: rgba(0, 255, 255, 0.12);
-            --chip-border: rgba(0, 255, 255, 0.25);
+            --muted: rgba(255, 255, 255, 0.75);
             --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            --radius: 14px;
-            --radius-sm: 10px;
         }
-        /* Sport variant (inspired by red cluster rings) */
-        html[data-theme="sport"] {
-            --accent: #fb7185; /* rose */
-            --accent-strong: #f43f5e;
+        
+        /* Layout with sidebar */
+        .layout {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 16px;
+            max-width: 1920px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .sidebar {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+            height: fit-content;
+            position: sticky;
+            top: 16px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+        }
+
+        .quick-status {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .quick-item { 
+            display: grid; 
+            grid-template-columns: auto 1fr;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            min-height: 20px;
+        }
+        .quick-label { 
+            color: var(--muted); 
+            font-weight: 600; 
+            letter-spacing: 0.05em;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .quick-value { 
+            font-weight: 700; 
+            color: var(--text);
+            text-align: right;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .heartbeat-item {
+            grid-template-columns: auto 1fr;
+        }
+        .heartbeat-item .quick-value {
+            display: none;
+        }
+        .heartbeat { 
+            width: 8px; 
+            height: 8px; 
+            border-radius: 50%; 
+            background: var(--green); 
+            box-shadow: 0 0 8px var(--green);
+            justify-self: end;
+            grid-column: 2;
+        }
+
+        .mini-panel { margin-top: 14px; }
+        .mini-panel .panel-header { margin-bottom: 8px; }
+        .mini-panel .logs-container { height: 220px; }
+        .mini-panel .alerts-list { max-height: 240px; overflow-y: auto; }
+        
+        /* Main Header */
+        .main-header {
+            text-align: center;
+            padding: 14px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .main-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--cyan);
+            text-shadow: 0 0 20px var(--cyan-glow);
+            margin-bottom: 12px;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-label {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .status-value {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 700;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid var(--cyan);
+        }
+        
+        .status-value.ready { color: var(--green); }
+        .status-value.autonomous { color: var(--cyan); }
+        .status-value.live { color: var(--green); }
+        .status-value.time { color: var(--cyan); }
+        
+        /* Main Grid Layout */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+            grid-auto-flow: row dense;
+        }
+        
+        .dashboard-panel {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            min-height: 280px;
+        }
+        
+        .dashboard-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+            animation: shine 4s infinite;
+        }
+        
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .dashboard-panel:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 255, 255, 0.35);
+            transform: translateY(-2px);
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 10px var(--cyan-glow);
+        }
+        
+        .panel-content {
+            height: calc(100% - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* LIDAR Panel */
+        .lidar-container {
+            width: 100%;
+            height: 280px;
+            min-height: 280px;
+            position: relative;
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .lidar-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 50%;
+        }
+        
+        .lidar-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .lidar-stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .lidar-stat-item:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+        
+        .stat-value {
+            color: var(--text);
+            font-weight: 700;
+        }
+        
+        /* RealSense Panel */
+        .camera-container {
+            width: 100%;
+            height: 260px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 255, 255, 0.05) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .camera-container::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 255, 0.03) 2px,
+                rgba(0, 255, 255, 0.03) 4px
+            );
+            animation: scan 2s linear infinite;
+        }
+        
+        @keyframes scan {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+        
+        .camera-view-mode {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        
+        .btn-small {
+            padding: 4px 10px;
+            border: 1px solid var(--cyan);
+            background: transparent;
+            color: var(--cyan);
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+        
+        .btn-small:hover {
+            background: rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+        
+        .btn-small.active {
+            background: var(--cyan);
+            color: var(--bg);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+        
+        .camera-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+        .fps-row { display: flex; align-items: center; gap: 8px; }
+        #fps-sparkline { width: 100px; height: 20px; border: 1px solid rgba(0,255,255,0.2); border-radius: 4px; background: rgba(0,255,255,0.04); }
+        
+        /* System Status Panel */
+        .system-status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .status-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .status-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .status-card-title {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .status-card-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+        }
+        
+        .status-card-value.running { color: var(--green); }
+        .status-card-value.stopped { color: var(--red); }
+        .status-card-value.good { color: var(--green); }
+        .status-card-value.warning { color: var(--orange); }
+        .status-card-value.error { color: var(--red); }
+        .status-card-value.connected { color: var(--green); }
+        .status-card-value.disconnected { color: var(--red); }
+        
+        /* Statistics Panel */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .stat-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-card-label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .stat-card-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--cyan);
+        }
+        
+        /* Live Logs Panel */
+        .logs-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 6px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+        .logs-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .chip { padding: 4px 10px; border: 1px solid rgba(0,255,255,0.4); color: var(--cyan); background: transparent; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.2s ease; text-transform: uppercase; font-weight: 600; }
+        .chip.active { background: var(--cyan); color: var(--bg); box-shadow: 0 0 10px rgba(0,255,255,0.3); }
+        
+        /* Gallery */
+        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+        .gallery-item { position: relative; border: 1px solid rgba(0,255,255,0.15); border-radius: 8px; overflow: hidden; background: rgba(0,255,255,0.04); cursor: pointer; }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .gallery-item .gallery-label { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 4px; }
+        
+        .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .gallery-modal.open { display: flex; }
+        .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 10px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); }
+        #gallery-image { max-width: 88vw; max-height: 74vh; display: block; border-radius: 6px; }
+        .gallery-caption { margin-top: 6px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        
+        .logs-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .logs-container::-webkit-scrollbar-track {
+            background: rgba(0, 255, 255, 0.05);
+        }
+        
+        .logs-container::-webkit-scrollbar-thumb {
+            background: var(--cyan);
+            border-radius: 3px;
+        }
+        
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+            animation: logSlide 0.3s ease-out;
+        }
+        
+        @keyframes logSlide {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .log-time {
+            color: var(--cyan);
+            font-weight: 700;
+            margin-right: 8px;
+        }
+        
+        .log-message {
+            color: var(--text);
+        }
+        
+        .log-entry.info .log-message { color: var(--cyan); }
+        .log-entry.warn .log-message { color: var(--orange); }
+        .log-entry.error .log-message { color: var(--red); }
+        
+        /* Alerts Panel */
+        .alerts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .alert-item {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: alertSlide 0.3s ease-out;
+        }
+        
+        @keyframes alertSlide {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-item.warn {
+            border-color: var(--orange);
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .alert-item.success {
+            border-color: var(--green);
+            background: rgba(34, 197, 94, 0.1);
+        }
+        
+        .alert-icon {
+            font-size: 18px;
+        }
+        
+        .logout-btn {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 8px;
+            color: var(--red);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            z-index: 1000;
+            transition: all 0.2s;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: var(--red);
+        }
+        
+        /* Developer credit - fixed position in bottom right corner */
+        .developer-credit {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 6px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+        
+        .developer-credit:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: rgba(0, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .layout { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -505,553 +1057,682 @@ DASHBOARD_HTML = '''
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🚀 ROVER TELEMETRY DASHBOARD</h1>
-        <div class="actions">
-            <span class="btn" id="metric-uptime" title="Uptime">Uptime: --</span>
-            <span class="btn" id="metric-fps" title="RealSense FPS">FPS: --</span>
-            <span class="btn" id="metric-msg" title="Messages Sent">Msgs: --</span>
-            <button class="btn" id="theme-toggle" title="Toggle theme">Classic/Sport</button>
-            <p id="timestamp">--:--:--</p>
-        </div>
-    </div>
-
-    <div class="ribbon" id="status-ribbon">
-        <div class="light"><span class="dot" id="light-proximity"></span> Proximity</div>
-        <div class="light"><span class="dot" id="light-relay"></span> Data Relay</div>
-        <div class="light"><span class="dot" id="light-crop"></span> Crop Monitor</div>
-        <div class="light"><span class="dot" id="light-lidar"></span> RPLidar</div>
-        <div class="light"><span class="dot" id="light-realsense"></span> RealSense</div>
-        <div class="light"><span class="dot" id="light-pixhawk"></span> Pixhawk</div>
-    </div>
-
-    <div class="container status-row">
-        <div class="panel">
-            <h2>SYSTEM STATUS</h2>
-            <div class="status-grid" id="system-status">
-                <!-- Populated by JavaScript -->
+    <!-- Logout Button -->
+    <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
+    
+    <!-- Developer Credit -->
+    <div class="developer-credit">Developed by Harinder Singh</div>
+    
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="panel-header">📡 QUICK STATUS</div>
+            <div class="quick-status">
+                <div class="quick-item"><span class="quick-label">Status</span><span class="quick-value" id="q-status">Ready</span></div>
+                <div class="quick-item"><span class="quick-label">Mode</span><span class="quick-value" id="q-mode">Autonomous</span></div>
+                <div class="quick-item"><span class="quick-label">Connection</span><span class="quick-value" id="q-conn">Live</span></div>
+                <div class="quick-item heartbeat-item"><span class="quick-label">Heartbeat</span><span class="heartbeat" id="q-heartbeat"></span></div>
+                <div class="quick-item"><span class="quick-label">Time</span><span class="quick-value" id="q-time">--:--</span></div>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2>SENSOR HEALTH</h2>
-            <div class="status-grid" id="sensor-health">
-                <!-- Populated by JavaScript -->
-            </div>
-        </div>
-
-        <div class="panel">
-            <h2>STATISTICS</h2>
-            <div class="status-grid" id="statistics">
-                <!-- Populated by JavaScript -->
-            </div>
-        </div>
-    </div>
-
-    <div class="vision-row">
-        <div class="proximity-panel">
-            <div class="panel">
-                <h2>PROXIMITY RADAR</h2>
-                <div class="radar-container">
-                    <canvas id="radar" class="radar"></canvas>
+            <!-- Sidebar Logs -->
+            <div class="mini-panel">
+                <div class="panel-header">📋 LIVE LOGS</div>
+                <div class="logs-toolbar">
+                    <button class="chip active" data-level="all">All</button>
+                    <button class="chip" data-level="info">Info</button>
+                    <button class="chip" data-level="warn">Warn</button>
+                    <button class="chip" data-level="error">Error</button>
                 </div>
-                <div class="proximity-values" id="proximity-values">
-                    <!-- Populated by JavaScript -->
-                </div>
+                <div class="logs-container" id="logs-container"></div>
             </div>
-        </div>
 
-        <div class="rover-vision-panel">
-            <div class="panel">
-                <h2>REAL-TIME ROVER VISION</h2>
-                <div class="vision-toolbar">
-                    <button class="btn small" id="btn-live">Live</button>
-                    <button class="btn small" id="btn-snap">Snapshots</button>
-                    <button class="btn small" id="btn-gallery">Gallery</button>
-                    <span style="flex:1"></span>
-                    <button class="btn small" id="btn-color">Color</button>
-                    <button class="btn small" id="btn-depth">Depth</button>
-                    <button class="btn small" id="btn-ir">IR</button>
-                </div>
-                <div class="crop-image-container">
-                    <img id="live-stream" src="/api/stream" alt="Live Stream" style="display:none"
-                         onerror="this.style.display='none'; document.getElementById('vision-offline').style.display='block';"
-                         onload="this.style.display='block'; document.getElementById('vision-offline').style.display='none';">
-                    <div id="vision-offline" style="color: var(--muted); font-size: 12px; padding: 20px; text-align: center;">
-                        Camera offline or not available
+            <!-- Sidebar Alerts -->
+            <div class="mini-panel">
+                <div class="panel-header">🔔 ALERTS</div>
+                <div class="alerts-list" id="alerts-list"></div>
+            </div>
+        </aside>
+        <main>
+            <!-- Main Header -->
+            <div class="main-header">
+                <h1>🚀 ROVER TELEMETRY DASHBOARD</h1>
+                <div class="status-bar">
+                    <div class="status-item">
+                        <span class="status-label">STATUS:</span>
+                        <span class="status-value ready" id="status-ready">READY</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">MODE:</span>
+                        <span class="status-value autonomous" id="status-mode">AUTONOMOUS</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">CONNECTION:</span>
+                        <span class="status-value live" id="status-connection">LIVE</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">TIME:</span>
+                        <span class="status-value time" id="status-time">--:--</span>
                     </div>
                 </div>
-                <div id="inline-gallery" class="gallery-grid">
-                    <!-- Gallery items will be populated here -->
+            </div>
+
+            <!-- Main Dashboard Grid -->
+            <div class="dashboard-grid">
+                <!-- LIDAR / PROXIMITY -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">🌀 LIDAR / PROXIMITY DETECTION</div>
+                    <div class="panel-content">
+                        <div class="lidar-container">
+                            <canvas id="lidar-canvas" class="lidar-canvas"></canvas>
+                        </div>
+                        <div class="lidar-stats">
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Obstacles:</span>
+                                <span class="stat-value" id="lidar-obstacles">0</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Min Range:</span>
+                                <span class="stat-value" id="lidar-min">-- m</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Success Rate:</span>
+                                <span class="stat-value" id="lidar-success">--%</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Avg Range:</span>
+                                <span class="stat-value" id="lidar-avg">-- m</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REALSENSE -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">🎥 REALSENSE CAMERA</div>
+                    <div class="panel-content">
+                        <div class="camera-view-mode">
+                            <button class="btn-small active" id="btn-rgb">RGB</button>
+                            <button class="btn-small" id="btn-depth">Depth</button>
+                            <button class="btn-small" id="btn-ir">IR</button>
+                            <span style="flex:1"></span>
+                            <button class="btn-small" id="btn-open-gallery">Open Gallery</button>
+                        </div>
+                        <div class="camera-container" id="camera-view">
+                            <img id="camera-stream" src="/api/stream" alt="RealSense Stream" style="max-width: 100%; max-height: 100%; object-fit: contain; display: none;"
+                                 onerror="this.style.display='none'; document.getElementById('camera-placeholder').style.display='block';"
+                                 onload="this.style.display='block'; document.getElementById('camera-placeholder').style.display='none';">
+                            <div id="camera-placeholder" style="text-align: center; position: relative; z-index: 1;">
+                                <div style="font-size: 48px; opacity: 0.5; margin-bottom: 10px;">📹</div>
+                                <div>RealSense Camera Stream</div>
+                            </div>
+                        </div>
+                        <div class="camera-info">
+                            <span class="fps-row" style="color: var(--muted);">FPS: <span id="camera-fps" style="color: var(--text); font-weight: 700; margin-left: 6px;">0</span>
+                                <canvas id="fps-sparkline" width="100" height="20"></canvas>
+                            </span>
+                            <span style="color: var(--muted);">Status: <span id="camera-status" style="color: var(--text); font-weight: 700;">--</span></span>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div class="container" style="flex-shrink: 0;">
-        <div class="panel" style="width: 100%;">
-            <h2>ENVIRONMENT BOUNDARY (10m)</h2>
-            <canvas id="room-map" class="room-map"></canvas>
+            <!-- Secondary Dashboard Grid -->
+            <div class="dashboard-grid">
+                <!-- SYSTEM STATUS -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">⚙️ SYSTEM STATUS</div>
+                    <div class="panel-content">
+                        <div class="system-status-grid">
+                            <div class="status-card">
+                                <div class="status-card-title">Proximity Bridge</div>
+                                <div class="status-card-value" id="status-proximity-bridge">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Data Relay</div>
+                                <div class="status-card-value" id="status-data-relay">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Crop Monitor</div>
+                                <div class="status-card-value" id="status-crop-monitor">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">RPLidar</div>
+                                <div class="status-card-value" id="status-rplidar">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">RealSense</div>
+                                <div class="status-card-value" id="status-realsense">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Pixhawk</div>
+                                <div class="status-card-value" id="status-pixhawk">Unknown</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STATISTICS -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">📊 STATISTICS</div>
+                    <div class="panel-content">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-card-label">Uptime</div>
+                                <div class="stat-card-value" id="stat-uptime">--</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">Messages Sent</div>
+                                <div class="stat-card-value" id="stat-messages">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">RPLidar Success</div>
+                                <div class="stat-card-value" id="stat-lidar-success">--%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">RealSense FPS</div>
+                                <div class="stat-card-value" id="stat-realsense-fps">0</div>
+                            </div>
+                            <div class="stat-card" style="grid-column: 1 / -1;">
+                                <div class="stat-card-label">Last Update</div>
+                                <div class="stat-card-value" style="font-size: 14px;" id="stat-last-update">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Gallery Modal -->
+    <div class="gallery-modal" id="gallery-modal" aria-hidden="true">
+        <div class="gallery-modal-content">
+            <img id="gallery-image" alt="Crop capture" />
+            <div class="gallery-caption">
+                <span id="gallery-caption"></span>
+                <button class="btn-small" id="gallery-close">Close</button>
+            </div>
         </div>
     </div>
 
     <script>
-        const canvas = document.getElementById('radar');
-        const ctx = canvas.getContext('2d');
-        const roomMap = document.getElementById('room-map');
-        const roomCtx = roomMap.getContext('2d');
-        
-        // Make radar fit the container size
-        function resizeRadar() {
-            const container = canvas.parentElement;
-            const size = container.clientWidth;
-            canvas.width = size;
-            canvas.height = size;
-        }
-        function resizeRoom() {
-            const w = roomMap.parentElement.clientWidth - 36;
-            roomMap.width = w;
-            roomMap.height = 140;
-        }
-        
-        // Initial resize
-        resizeRadar();
-        resizeRoom();
-        
-        // Resize on window resize
-        window.addEventListener('resize', () => { resizeRadar(); resizeRoom(); });
-        
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const maxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
-
-        // Sector angles (45° each, starting from front)
-        const sectorAngles = [
-            -22.5, 22.5, 67.5, 112.5, 157.5, -157.5, -112.5, -67.5
-        ];
-        const sectorNames = [
-            'FRONT', 'F-RIGHT', 'RIGHT', 'B-RIGHT',
-            'BACK', 'B-LEFT', 'LEFT', 'F-LEFT'
-        ];
-
-        function drawRadar(distances) {
-            // Update center and radius for current canvas size
-            const currentCenterX = canvas.width / 2;
-            const currentCenterY = canvas.height / 2;
-            const currentMaxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
-            
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw grid circles
-            ctx.strokeStyle = 'rgba(110, 231, 183, 0.18)';
-            ctx.lineWidth = 1;
-            for (let r = 0.25; r <= 1; r += 0.25) {
-                ctx.beginPath();
-                ctx.arc(currentCenterX, currentCenterY, currentMaxRadius * r, 0, Math.PI * 2);
-                ctx.stroke();
-
-                // Distance labels
-                ctx.fillStyle = 'rgba(230, 234, 242, 0.5)';
-                ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-                ctx.fillText(`${Math.round(r * 25)}m`, currentCenterX + 5, currentCenterY - currentMaxRadius * r + 10);
+        // Telemetry data structure
+        let telemetryData = {
+            proximity: [2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500], // 8 sectors in cm
+            system_status: {
+                proximity_bridge: 'Unknown',
+                data_relay: 'Unknown',
+                crop_monitor: 'Unknown'
+            },
+            sensor_health: {
+                rplidar: 'Unknown',
+                realsense: 'Unknown',
+                pixhawk: 'Unknown'
+            },
+            statistics: {
+                uptime: 0,
+                messages_sent: 0,
+                last_update: '',
+                rplidar_success_rate: 0,
+                realsense_fps: 0
             }
+        };
 
-            // Draw sector lines / ticks
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+            });
+            const st = document.getElementById('status-time'); if (st) st.textContent = time;
+            const qt = document.getElementById('q-time'); if (qt) qt.textContent = time;
+        }
+        updateTimestamp();
+        setInterval(updateTimestamp, 1000);
+
+        // LIDAR - Initialize
+        let lidarCanvas = null;
+        let lidarCtx = null;
+        
+        function initLidar() {
+            lidarCanvas = document.getElementById('lidar-canvas');
+            if (!lidarCanvas) return;
+            lidarCtx = lidarCanvas.getContext('2d');
+            resizeLidar();
+            window.addEventListener('resize', resizeLidar);
+        }
+        
+        function resizeLidar() {
+            if (!lidarCanvas || !lidarCanvas.parentElement) return;
+            const container = lidarCanvas.parentElement;
+            const size = Math.min(container.clientWidth, container.clientHeight || 280);
+            if (size > 0) {
+                // High-DPI support
+                const dpr = window.devicePixelRatio || 1;
+                const displaySize = size;
+                lidarCanvas.width = displaySize * dpr;
+                lidarCanvas.height = displaySize * dpr;
+                lidarCanvas.style.width = displaySize + 'px';
+                lidarCanvas.style.height = displaySize + 'px';
+                lidarCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                if (telemetryData && telemetryData.proximity) {
+                    drawLidar(telemetryData.proximity);
+                }
+            }
+        }
+
+        let scanAngle = 0;
+        const sectorAngles = [-22.5, 22.5, 67.5, 112.5, 157.5, -157.5, -112.5, -67.5];
+        const sectorNames = ['FRONT', 'F-RIGHT', 'RIGHT', 'B-RIGHT', 'BACK', 'B-LEFT', 'LEFT', 'F-LEFT'];
+
+        function drawLidar(distances) {
+            if (!lidarCanvas || !lidarCtx || lidarCanvas.width === 0 || lidarCanvas.height === 0) return;
+            
+            // Get logical canvas size (after transform scaling)
+            const dpr = window.devicePixelRatio || 1;
+            const logicalWidth = lidarCanvas.width / dpr;
+            const logicalHeight = lidarCanvas.height / dpr;
+            const centerX = logicalWidth / 2;
+            const centerY = logicalHeight / 2;
+            const maxRadius = Math.min(logicalWidth, logicalHeight) / 2 - 20;
+            
+            // Clear canvas using logical dimensions
+            lidarCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+            // Grid circles (improved line quality)
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.25)';
+            lidarCtx.lineWidth = 2;
+            for (let r = 0.25; r <= 1; r += 0.25) {
+                lidarCtx.beginPath();
+                lidarCtx.arc(centerX, centerY, maxRadius * r, 0, Math.PI * 2);
+                lidarCtx.stroke();
+                
+                // Distance labels
+                lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                lidarCtx.font = 'bold 13px sans-serif';
+                lidarCtx.textAlign = 'left';
+                lidarCtx.textBaseline = 'middle';
+                lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                lidarCtx.shadowBlur = 2;
+                lidarCtx.fillText(`${Math.round(r * 25)}m`, centerX + 6, centerY - maxRadius * r);
+                lidarCtx.shadowBlur = 0;
+            }
+            
+            // Danger rings (1m red, 3m orange)
+            const r1 = (1 / 25) * maxRadius;
+            const r3 = (3 / 25) * maxRadius;
+            lidarCtx.setLineDash([8, 4]);
+            lidarCtx.lineWidth = 2.5;
+            lidarCtx.strokeStyle = 'rgba(239, 68, 68, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r1, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r3, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.setLineDash([]);
+            
+            // Radial lines
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            lidarCtx.lineWidth = 1.5;
             for (let angle of sectorAngles) {
                 const rad = (angle - 90) * Math.PI / 180;
-                ctx.beginPath();
-                ctx.moveTo(currentCenterX, currentCenterY);
-                ctx.lineTo(
-                    currentCenterX + currentMaxRadius * Math.cos(rad),
-                    currentCenterY + currentMaxRadius * Math.sin(rad)
-                );
-                ctx.stroke();
-            }
-            // Minor ticks every 15°
-            ctx.strokeStyle = 'rgba(110, 231, 183, 0.12)';
-            for (let a = -180; a < 180; a += 15) {
-                const rad = (a - 90) * Math.PI / 180;
-                const inner = currentMaxRadius - 8;
-                ctx.beginPath();
-                ctx.moveTo(currentCenterX + inner * Math.cos(rad), currentCenterY + inner * Math.sin(rad));
-                ctx.lineTo(currentCenterX + currentMaxRadius * Math.cos(rad), currentCenterY + currentMaxRadius * Math.sin(rad));
-                ctx.stroke();
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.lineTo(centerX + maxRadius * Math.cos(rad), centerY + maxRadius * Math.sin(rad));
+                lidarCtx.stroke();
             }
 
-            // Draw obstacles
+            // Scanning line
+            scanAngle = (scanAngle + 3) % 360;
+            const scanRad = (scanAngle - 90) * Math.PI / 180;
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.lineWidth = 2;
+            lidarCtx.shadowBlur = 15;
+            lidarCtx.shadowColor = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY);
+            lidarCtx.lineTo(centerX + maxRadius * Math.cos(scanRad), centerY + maxRadius * Math.sin(scanRad));
+            lidarCtx.stroke();
+            lidarCtx.shadowBlur = 0;
+
+            // Obstacles
+            let obstacleCount = 0;
+            let minDist = Infinity;
+            let totalDist = 0;
             for (let i = 0; i < 8; i++) {
-                const distance = distances[i] / 100; // Convert to meters
-                const normalizedDist = Math.min(distance / 25, 1); // Normalize to 25m max
-                const pixelDist = normalizedDist * currentMaxRadius;
-
-                // Calculate sector center angle
+                const distance = distances[i] / 100; // Convert cm to meters
+                if (distance < 25) {
+                    obstacleCount++;
+                    if (distance < minDist) minDist = distance;
+                }
+                totalDist += distance;
+                
+                const pixelDist = Math.min((distance / 25) * maxRadius, maxRadius);
                 const startAngle = (sectorAngles[i] - 90) * Math.PI / 180;
                 const endAngle = (sectorAngles[(i + 1) % 8] - 90) * Math.PI / 180;
-                const centerAngle = (startAngle + endAngle) / 2;
-
-                // Color based on distance
+                
                 let color;
-                if (distance < 1) {
-                    color = 'rgba(239, 68, 68, 0.65)'; // softer red
-                } else if (distance < 3) {
-                    color = 'rgba(245, 158, 11, 0.50)'; // amber
-                } else {
-                    color = 'rgba(52, 211, 153, 0.30)'; // mint
-                }
-
-                // Draw sector arc
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.arc(currentCenterX, currentCenterY, pixelDist, startAngle, endAngle);
-                ctx.lineTo(currentCenterX, currentCenterY);
-                ctx.fill();
-
-                // Draw distance text
-                if (distance < 25) {
-                    const textX = currentCenterX + (pixelDist + 15) * Math.cos(centerAngle);
-                    const textY = currentCenterY + (pixelDist + 15) * Math.sin(centerAngle);
-                    ctx.fillStyle = 'rgba(230, 234, 242, 0.85)';
-                    ctx.font = '600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-                    ctx.fillText(`${distance.toFixed(1)}m`, textX - 15, textY + 3);
-                }
+                if (distance < 1) color = 'rgba(239, 68, 68, 0.7)';
+                else if (distance < 3) color = 'rgba(245, 158, 11, 0.6)';
+                else color = 'rgba(34, 197, 94, 0.4)';
+                
+                lidarCtx.fillStyle = color;
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.arc(centerX, centerY, pixelDist, startAngle, endAngle);
+                lidarCtx.lineTo(centerX, centerY);
+                lidarCtx.closePath();
+                lidarCtx.fill();
             }
 
-            // Draw center point
-            ctx.fillStyle = 'rgba(110, 231, 183, 0.9)';
-            ctx.beginPath();
-            ctx.arc(currentCenterX, currentCenterY, 3, 0, Math.PI * 2);
-            ctx.fill();
+            // Center rover
+            lidarCtx.fillStyle = '#22C55E';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY - 10);
+            lidarCtx.lineTo(centerX - 7, centerY + 7);
+            lidarCtx.lineTo(centerX + 7, centerY + 7);
+            lidarCtx.closePath();
+            lidarCtx.fill();
+        
+            // Sector labels
+            lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            lidarCtx.font = 'bold 12px sans-serif';
+            lidarCtx.textAlign = 'center';
+            lidarCtx.textBaseline = 'middle';
+            lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+            lidarCtx.shadowBlur = 3;
+            for (let i = 0; i < 8; i++) {
+                const startAngle = sectorAngles[i];
+                const endAngle = sectorAngles[(i + 1) % 8];
+                let centerAngle = (startAngle + endAngle) / 2;
+                if (Math.abs(endAngle - startAngle) > 180) {
+                    centerAngle = (startAngle + endAngle + 360) / 2;
+                    if (centerAngle > 180) centerAngle -= 360;
+                }
+                const angleDeg = centerAngle - 90;
+                const rad = angleDeg * Math.PI / 180;
+                const labelRadius = maxRadius - 12;
+                const lx = centerX + labelRadius * Math.cos(rad);
+                const ly = centerY + labelRadius * Math.sin(rad);
+                lidarCtx.fillText(sectorNames[i], lx, ly);
+            }
+            lidarCtx.shadowBlur = 0;
+            
+            // Nearest distance text
+            lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            lidarCtx.font = 'bold 14px sans-serif';
+            lidarCtx.textAlign = 'center';
+            lidarCtx.textBaseline = 'middle';
+            lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+            lidarCtx.shadowBlur = 4;
+            const nearestText = (minDist === Infinity ? '--' : minDist.toFixed(2)) + ' m';
+            lidarCtx.fillText(nearestText, centerX, centerY + 28);
+            lidarCtx.shadowBlur = 0;
 
-            // Update proximity values panel
-            const valuesHtml = sectorNames.map((name, i) => {
-                const dist = distances[i] / 100;
-                const className = dist < 1 ? 'danger' : dist < 3 ? 'warning' : 'safe';
-                return `
-                    <div class="proximity-item">
-                        <div class="proximity-label">${name}</div>
-                        <div class="proximity-value ${className}">${dist.toFixed(1)}m</div>
-                    </div>
-                `;
-            }).join('');
-            document.getElementById('proximity-values').innerHTML = valuesHtml;
+            // Calculate success rate
+            const validReadings = distances.filter(d => d > 0 && d < 2500).length;
+            const successRate = Math.round((validReadings / 8) * 100);
+
+            // Update stats
+            document.getElementById('lidar-obstacles').textContent = obstacleCount;
+            document.getElementById('lidar-min').textContent = minDist === Infinity ? '-- m' : minDist.toFixed(2) + ' m';
+            document.getElementById('lidar-avg').textContent = (totalDist / 8).toFixed(2) + ' m';
+            document.getElementById('lidar-success').textContent = successRate + '%';
         }
 
-        function drawRoomBoundary(distances) {
-            const w = roomMap.width, h = roomMap.height;
-            roomCtx.clearRect(0,0,w,h);
+
+        // Update status indicators
+        function updateStatusIndicators(data) {
+            // System status
+            updateStatusCard('status-proximity-bridge', data.system_status.proximity_bridge);
+            updateStatusCard('status-data-relay', data.system_status.data_relay);
+            updateStatusCard('status-crop-monitor', data.system_status.crop_monitor);
             
-            // Background grid
-            roomCtx.strokeStyle = 'rgba(255,255,255,0.03)';
-            roomCtx.lineWidth = 1;
-            for (let x=0; x<w; x+=30){ roomCtx.beginPath(); roomCtx.moveTo(x,0); roomCtx.lineTo(x,h); roomCtx.stroke(); }
-            for (let y=0; y<h; y+=30){ roomCtx.beginPath(); roomCtx.moveTo(0,y); roomCtx.lineTo(w,y); roomCtx.stroke(); }
+            // Sensor health
+            updateStatusCard('status-rplidar', data.sensor_health.rplidar);
+            updateStatusCard('status-realsense', data.sensor_health.realsense);
+            updateStatusCard('status-pixhawk', data.sensor_health.pixhawk);
             
-            // Draw room walls/boundaries from obstacle data
-            const cx = w/2, cy = h/2; const maxRange = 10.0; // meters
-            const points = [];
+            // Statistics
+            const stats = data.statistics;
+            const uptimeHours = Math.floor(stats.uptime / 3600);
+            const uptimeMinutes = Math.floor((stats.uptime % 3600) / 60);
+            document.getElementById('stat-uptime').textContent = `${uptimeHours}h ${uptimeMinutes}m`;
+            document.getElementById('stat-messages').textContent = stats.messages_sent.toLocaleString();
+            document.getElementById('stat-lidar-success').textContent = stats.rplidar_success_rate + '%';
+            document.getElementById('stat-realsense-fps').textContent = stats.realsense_fps;
+            document.getElementById('stat-last-update').textContent = stats.last_update;
             
-            // Collect all sector points to form boundaries
-            for (let i=0;i<8;i++){
-                const dist = Math.min(distances[i]/100, maxRange);
-                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
-                const a = (angleDeg - 90) * Math.PI/180;
-                const r = (dist / maxRange) * (Math.min(w,h)/2 - 20);
-                const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
-                points.push({x, y, dist, angle: angleDeg});
-            }
-            
-            // Draw room boundary as connected walls
-            if (points.length > 0) {
-                roomCtx.strokeStyle = 'rgba(110, 231, 183, 0.4)';
-                roomCtx.lineWidth = 2;
-                roomCtx.beginPath();
-                roomCtx.moveTo(points[0].x, points[0].y);
-                for (let i = 1; i < points.length; i++) {
-                    roomCtx.lineTo(points[i].x, points[i].y);
-                }
-                roomCtx.closePath();
-                roomCtx.stroke();
-                
-                // Fill room with subtle gradient
-                roomCtx.fillStyle = 'rgba(110, 231, 183, 0.05)';
-                roomCtx.fill();
-            }
-            
-            // Draw obstacles as walls/objects
-            for (let i=0;i<8;i++){
-                const dist = Math.min(distances[i]/100, maxRange);
-                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
-                const a = (angleDeg - 90) * Math.PI/180;
-                const r = (dist / maxRange) * (Math.min(w,h)/2 - 20);
-                const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
-                
-                if (dist < maxRange - 1) { // Only draw if within range
-                    const size = dist < 1 ? 8 : dist < 3 ? 6 : 4;
-                    roomCtx.fillStyle = dist < 1 ? 'rgba(239, 68, 68, 0.7)' : dist < 3 ? 'rgba(245, 158, 11, 0.6)' : 'rgba(52, 211, 153, 0.5)';
-                    roomCtx.beginPath(); 
-                    roomCtx.arc(x,y,size,0,Math.PI*2); 
-                    roomCtx.fill();
-                    
-                    // Add glow effect for close objects
-                    if (dist < 2) {
-                        roomCtx.shadowColor = dist < 1 ? '#ef4444' : '#f59e0b';
-                        roomCtx.shadowBlur = 8;
-                        roomCtx.fillStyle = dist < 1 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.2)';
-                        roomCtx.beginPath(); 
-                        roomCtx.arc(x,y,size+2,0,Math.PI*2); 
-                        roomCtx.fill();
-                        roomCtx.shadowBlur = 0;
-                    }
-                }
-            }
-            
-            // Draw center rover with direction indicator
-            roomCtx.fillStyle = '#6ee7b7';
-            roomCtx.beginPath(); 
-            roomCtx.arc(cx,cy,4,0,Math.PI*2); 
-            roomCtx.fill();
-            roomCtx.strokeStyle = '#6ee7b7';
-            roomCtx.lineWidth = 2;
-            roomCtx.beginPath();
-            roomCtx.moveTo(cx, cy-8);
-            roomCtx.lineTo(cx, cy);
-            roomCtx.stroke();
-            
-            // Label
-            roomCtx.fillStyle = 'rgba(110, 231, 183, 0.8)';
-            roomCtx.font = '11px system-ui, sans-serif';
-            roomCtx.fillText('±10m Environment', 12, 18);
+            // Camera FPS
+            document.getElementById('camera-fps').textContent = stats.realsense_fps;
+            document.getElementById('camera-status').textContent = data.sensor_health.realsense;
+            pushFps(stats.realsense_fps);
         }
 
-        // Indicator helpers
-        function setLight(id, state) {
+        function updateStatusCard(id, value) {
             const el = document.getElementById(id);
             if (!el) return;
-            el.classList.remove('on-ok','on-warn','on-err');
-            if (state === 'ok') el.classList.add('on-ok');
-            else if (state === 'warn') el.classList.add('on-warn');
-            else if (state === 'err') el.classList.add('on-err');
+            el.textContent = value;
+            el.className = 'status-card-value';
+            
+            if (value === 'RUNNING') el.classList.add('running');
+            else if (value === 'STOPPED') el.classList.add('stopped');
+            else if (value === 'Good') el.classList.add('good');
+            else if (value === 'Warning') el.classList.add('warning');
+            else if (value === 'Error') el.classList.add('error');
+            else if (value === 'Connected') el.classList.add('connected');
+            else if (value === 'Disconnected') el.classList.add('disconnected');
         }
 
-        function updateStatus(elementId, data) {
-            const element = document.getElementById(elementId);
-            let html = '';
+        function updateQuickStatus(data) {
+            const qs = document.getElementById('q-status'); if (qs) qs.textContent = document.getElementById('status-ready').textContent;
+            const qm = document.getElementById('q-mode'); if (qm) qm.textContent = document.getElementById('status-mode').textContent;
+            const qc = document.getElementById('q-conn'); if (qc) qc.textContent = document.getElementById('status-connection').textContent;
+            const hb = document.getElementById('q-heartbeat'); if (hb) hb.style.opacity = hb.style.opacity === '0.4' ? '1' : '0.4';
+        }
 
-            for (const [key, value] of Object.entries(data)) {
-                const displayKey = key.replace(/_/g, ' ').toUpperCase();
-                let displayValue = value;
-                let className = 'status-value';
-
-                // Apply color coding
-                if (value === 'RUNNING' || value === 'Connected' || value === 'Good') {
-                    className += ' status-ok';
-                } else if (value === 'Warning' || value === 'Degraded') {
-                    className += ' status-warning';
-                } else if (value === 'ERROR' || value === 'Disconnected' || value === 'Failed') {
-                    className += ' status-error';
-                }
-
-                html += `
-                    <div class="status-item">
-                        <div class="status-label">${displayKey}:</div>
-                        <div class="${className}">${displayValue}</div>
-                    </div>
-                `;
+        // Alerts
+        function updateAlerts(data) {
+            const alerts = [];
+            if (data.system_status.proximity_bridge === 'STOPPED') {
+                alerts.push({ level: 'warn', msg: 'Proximity bridge stopped.' });
             }
-
-            element.innerHTML = html;
+            if (data.sensor_health.rplidar === 'Error') {
+                alerts.push({ level: 'warn', msg: 'LIDAR sync issue detected.' });
+            }
+            if (data.sensor_health.realsense === 'Disconnected') {
+                alerts.push({ level: 'warn', msg: 'RealSense camera disconnected.' });
+            }
+            if (alerts.length === 0) {
+                alerts.push({ level: 'success', msg: 'All systems nominal.' });
+            }
+            const container = document.getElementById('alerts-list');
+            if (container) {
+                container.innerHTML = alerts.map(alert => `
+                    <div class="alert-item ${alert.level}">
+                        <span class="alert-icon">${alert.level === 'warn' ? '🔔' : '🟢'}</span>
+                        <span>${alert.msg}</span>
+                    </div>
+                `).join('');
+            }
         }
+
+        // Live Logs
+        const logs = [];
+        let logFilter = 'all';
+        function addLogEntry(level, message) {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            logs.unshift({ level, message, time });
+            if (logs.length > 200) logs.pop();
+            renderLogs();
+        }
+        function renderLogs() {
+            const container = document.getElementById('logs-container');
+            if (!container) return;
+            const filtered = logs.filter(l => logFilter === 'all' || l.level === logFilter).slice(0, 50);
+            container.innerHTML = filtered.map(l => `
+                <div class="log-entry ${l.level}"><span class="log-time">[${l.time}]</span><span class="log-message">${l.message}</span></div>
+            `).join('');
+        }
+        document.addEventListener('click', (e) => {
+            const chip = e.target.closest('.chip');
+            if (!chip) return;
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            logFilter = chip.getAttribute('data-level');
+            renderLogs();
+        });
+
+        // FPS sparkline
+        const fpsData = [];
+        function pushFps(v) {
+            fpsData.push(Number(v) || 0);
+            if (fpsData.length > 50) fpsData.shift();
+            drawFpsSparkline();
+        }
+        function drawFpsSparkline() {
+            const canvas = document.getElementById('fps-sparkline');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0,0,w,h);
+            if (fpsData.length < 2) return;
+            const min = Math.min(...fpsData), max = Math.max(...fpsData);
+            const range = Math.max(1, max - min);
+            ctx.strokeStyle = '#00FFFF';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            fpsData.forEach((val, i) => {
+                const x = (i / (fpsData.length - 1)) * (w - 4) + 2;
+                const y = h - ((val - min) / range) * (h - 4) - 2;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        // Camera stream switching
+        let currentStream = 'rgb';
+        const btnRgb = document.getElementById('btn-rgb');
+        const btnDepth = document.getElementById('btn-depth');
+        const btnIr = document.getElementById('btn-ir');
+        const cameraStream = document.getElementById('camera-stream');
+        
+        function updateCameraStream() {
+            if (!cameraStream) return;
+            let url = '/api/stream';
+            if (currentStream === 'depth') url = '/api/stream/depth';
+            else if (currentStream === 'ir') url = '/api/stream/ir';
+            cameraStream.src = url + '?' + new Date().getTime();
+        }
+        
+        btnRgb?.addEventListener('click', () => {
+            currentStream = 'rgb';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnRgb.classList.add('active');
+            updateCameraStream();
+        });
+        btnDepth?.addEventListener('click', () => {
+            currentStream = 'depth';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnDepth.classList.add('active');
+            updateCameraStream();
+        });
+        btnIr?.addEventListener('click', () => {
+            currentStream = 'ir';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnIr.classList.add('active');
+            updateCameraStream();
+        });
+
+        // Gallery
+        const galleryModal = document.getElementById('gallery-modal');
+        const galleryImg = document.getElementById('gallery-image');
+        const galleryCap = document.getElementById('gallery-caption');
+        const galleryClose = document.getElementById('gallery-close');
+        const btnOpenGallery = document.getElementById('btn-open-gallery');
+        
+        function loadGallery() {
+            fetch('/api/crop/list')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.images || data.images.length === 0) return;
+                    const grid = document.createElement('div');
+                    grid.className = 'gallery-grid';
+                    grid.innerHTML = data.images.map(img => `
+                        <div class="gallery-item" data-src="/api/crop/archive/${img.filename}" data-caption="${img.filename} • ${img.time}">
+                            <img src="/api/crop/archive/${img.filename}" alt="${img.filename}">
+                            <span class="gallery-label">${img.time}</span>
+                        </div>
+                    `).join('');
+                    const modalContent = document.querySelector('.gallery-modal-content');
+                    if (modalContent && !modalContent.querySelector('.gallery-grid')) {
+                        modalContent.insertBefore(grid, modalContent.firstChild);
+                    }
+                    document.querySelectorAll('.gallery-item').forEach(item => {
+                        item.addEventListener('click', () => {
+                            galleryImg.src = item.getAttribute('data-src');
+                            galleryCap.textContent = item.getAttribute('data-caption');
+                            galleryModal.classList.add('open');
+                        });
+                    });
+                })
+                .catch(error => console.error('Error loading gallery:', error));
+        }
+        
+        btnOpenGallery?.addEventListener('click', () => {
+            if (!galleryModal.querySelector('.gallery-grid')) loadGallery();
+            galleryModal.classList.add('open');
+        });
+        galleryClose?.addEventListener('click', () => galleryModal.classList.remove('open'));
+        galleryModal?.addEventListener('click', (e) => { if (e.target === galleryModal) galleryModal.classList.remove('open'); });
 
         // Fetch real data from API
         function updateDashboard() {
             fetch('/api/telemetry')
                 .then(response => response.json())
                 .then(data => {
-                    // Update radar
-                    drawRadar(data.proximity);
-
-                    // Update status panels
-                    updateStatus('system-status', data.system_status);
-                    updateStatus('sensor-health', data.sensor_health);
-                    updateStatus('statistics', data.statistics);
+                    telemetryData = data;
                     
-                    // Update ribbon lights
-                    const sys = data.system_status || {};
-                    const sen = data.sensor_health || {};
-                    setLight('light-proximity', sys.proximity_bridge === 'RUNNING' ? 'ok' : sys.proximity_bridge === 'STOPPED' ? 'err' : 'warn');
-                    setLight('light-relay', sys.data_relay === 'RUNNING' ? 'ok' : 'warn');
-                    setLight('light-crop', sys.crop_monitor === 'RUNNING' ? 'ok' : sys.crop_monitor === 'STOPPED' ? 'err' : 'warn');
-                    setLight('light-lidar', sen.rplidar === 'Good' ? 'ok' : sen.rplidar === 'Warning' ? 'warn' : 'err');
-                    setLight('light-realsense', sen.realsense === 'Connected' ? 'ok' : 'err');
-                    setLight('light-pixhawk', sen.pixhawk === 'Connected' ? 'ok' : 'warn');
-
-                    // Update room boundary
-                    drawRoomBoundary(data.proximity);
-
-                    // Update timestamp
-                    document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+                    // Update LIDAR
+                    if (lidarCanvas && lidarCtx) {
+                        drawLidar(data.proximity);
+                    }
                     
-                    // Update header metrics
-                    const stats = data.statistics || {};
-                    const uptimeSecs = stats.uptime || 0;
-                    const h = Math.floor(uptimeSecs / 3600).toString().padStart(2,'0');
-                    const m = Math.floor((uptimeSecs % 3600)/60).toString().padStart(2,'0');
-                    const s = Math.floor(uptimeSecs % 60).toString().padStart(2,'0');
-                    document.getElementById('metric-uptime').textContent = `Uptime: ${h}:${m}:${s}`;
-                    document.getElementById('metric-fps').textContent = `FPS: ${stats.realsense_fps || 0}`;
-                    document.getElementById('metric-msg').textContent = `Msgs: ${stats.messages_sent || 0}`;
+                    // Update status indicators
+                    updateStatusIndicators(data);
+                    updateAlerts(data);
+                    updateQuickStatus(data);
+                    
+                    // Add log entry
+                    addLogEntry('info', 'Telemetry data received');
                 })
                 .catch(error => {
                     console.error('Error fetching telemetry:', error);
+                    addLogEntry('error', 'Failed to fetch telemetry data');
                 });
         }
 
+        // Initialize
+        initLidar();
+        updateCameraStream();
+        
         // Initial draw
-        drawRadar([2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500]);
-
-        // Update every 1 second
-        setInterval(updateDashboard, 1000);
-
-        // Footer credit (matching standalone design)
-        (function(){
-            const footer = document.createElement('div');
-            footer.style.position='fixed'; 
-            footer.style.bottom='12px'; 
-            footer.style.right='12px'; 
-            footer.style.padding='6px 12px';
-            footer.style.background='rgba(0, 0, 0, 0.6)';
-            footer.style.border='1px solid rgba(0, 255, 255, 0.2)';
-            footer.style.borderRadius='6px';
-            footer.style.fontSize='11px';
-            footer.style.color='rgba(255, 255, 255, 0.7)';
-            footer.style.fontWeight='500';
-            footer.style.letterSpacing='0.05em';
-            footer.style.zIndex='1000';
-            footer.style.backdropFilter='blur(4px)';
-            footer.textContent = 'Developed by Harinder Singh';
-            footer.addEventListener('mouseenter', () => {
-                footer.style.background='rgba(0, 0, 0, 0.8)';
-                footer.style.borderColor='rgba(0, 255, 255, 0.4)';
-                footer.style.color='rgba(255, 255, 255, 0.9)';
-            });
-            footer.addEventListener('mouseleave', () => {
-                footer.style.background='rgba(0, 0, 0, 0.6)';
-                footer.style.borderColor='rgba(0, 255, 255, 0.2)';
-                footer.style.color='rgba(255, 255, 255, 0.7)';
-            });
-            document.body.appendChild(footer);
-        })();
-
-        // Vision toolbar buttons
-        const btnLive = document.getElementById('btn-live');
-        const btnSnap = document.getElementById('btn-snap');
-        const btnGallery = document.getElementById('btn-gallery');
-        const cropContainer = document.querySelector('.crop-image-container');
-        const inlineGallery = document.getElementById('inline-gallery');
-        const liveStream = document.getElementById('live-stream');
-        const btnColor = document.getElementById('btn-color');
-        const btnDepth = document.getElementById('btn-depth');
-        const btnIr = document.getElementById('btn-ir');
-
-        let currentView = 'live';
-        let currentStream = 'color'; // color | depth | ir
-
-        function applyStreamButtons() {
-            // Reset
-            btnColor.style.background = '';
-            btnDepth.style.background = '';
-            btnIr.style.background = '';
-            if (currentStream === 'color') btnColor.style.background = 'var(--accent)';
-            else if (currentStream === 'depth') btnDepth.style.background = 'var(--accent)';
-            else if (currentStream === 'ir') btnIr.style.background = 'var(--accent)';
+        if (lidarCanvas && lidarCtx) {
+            drawLidar(telemetryData.proximity);
         }
 
-        function updateLiveStreamSrc() {
-            let url = '/api/stream';
-            if (currentStream === 'depth') url = '/api/stream/depth';
-            else if (currentStream === 'ir') url = '/api/stream/ir';
-            liveStream.src = url + '?' + new Date().getTime();
-            applyStreamButtons();
+        // Update every 2 seconds
+        setInterval(updateDashboard, 2000);
+        
+        // Continuous animations
+        function animate() {
+            if (lidarCanvas && lidarCtx && telemetryData && telemetryData.proximity) {
+                drawLidar(telemetryData.proximity);
+            }
+            requestAnimationFrame(animate);
         }
+        animate();
 
-        function showLiveView() {
-            currentView = 'live';
-            cropContainer.style.display = 'grid';
-            inlineGallery.classList.remove('active');
-            updateLiveStreamSrc();
-            btnLive.style.background = 'var(--accent)';
-            btnSnap.style.background = '';
-            btnGallery.style.background = '';
-        }
-
-        function showSnapshots() {
-            currentView = 'snap';
-            cropContainer.style.display = 'grid';
-            inlineGallery.classList.remove('active');
-            liveStream.src = '/api/crop/latest?' + new Date().getTime();
-            btnLive.style.background = '';
-            btnSnap.style.background = 'var(--accent)';
-            btnGallery.style.background = '';
-        }
-
-        function showGallery() {
-            currentView = 'gallery';
-            cropContainer.style.display = 'none';
-            inlineGallery.classList.add('active');
-            loadGallery();
-            btnLive.style.background = '';
-            btnSnap.style.background = '';
-            btnGallery.style.background = 'var(--accent)';
-        }
-
-        function loadGallery() {
-            fetch('/api/crop/list')
-                .then(response => response.json())
-                .then(data => {
-                    let html = '';
-                    if (data.images && data.images.length > 0) {
-                        data.images.forEach(img => {
-                            html += `
-                                <div class="thumb" onclick="window.open('/api/crop/archive/${img.filename}', '_blank')">
-                                    <img src="/api/crop/archive/${img.filename}" alt="${img.filename}">
-                                    <div class="cap">${img.time}</div>
-                                </div>
-                            `;
-                        });
-                    } else {
-                        html = '<div style="color: var(--muted); padding: 20px;">No images available</div>';
-                    }
-                    inlineGallery.innerHTML = html;
-                })
-                .catch(error => {
-                    console.error('Error loading gallery:', error);
-                    inlineGallery.innerHTML = '<div style="color: var(--error); padding: 20px;">Error loading gallery</div>';
-                });
-        }
-
-        btnLive.addEventListener('click', showLiveView);
-        btnSnap.addEventListener('click', showSnapshots);
-        btnGallery.addEventListener('click', showGallery);
-
-        // Stream mode buttons
-        btnColor.addEventListener('click', () => { currentStream = 'color'; if (currentView==='live') updateLiveStreamSrc(); });
-        btnDepth.addEventListener('click', () => { currentStream = 'depth'; if (currentView==='live') updateLiveStreamSrc(); });
-        btnIr.addEventListener('click', () => { currentStream = 'ir'; if (currentView==='live') updateLiveStreamSrc(); });
-
-        // Initialize with live view
-        showLiveView();
-
-        // Theme toggle
-        const themeBtn = document.getElementById('theme-toggle');
-        function toggleTheme(){
-            const current = document.documentElement.getAttribute('data-theme');
-            const next = current === 'sport' ? '' : 'sport';
-            if (next) document.documentElement.setAttribute('data-theme', next);
-            else document.documentElement.removeAttribute('data-theme');
-        }
-        themeBtn.addEventListener('click', toggleTheme);
-        // Keyboard shortcut: press "t" to toggle theme
-        window.addEventListener('keydown', (e) => { if ((e.key||'').toLowerCase() === 't') toggleTheme(); });
     </script>
 </body>
 </html>
