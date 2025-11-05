@@ -384,6 +384,21 @@ DASHBOARD_HTML = '''
             overflow: hidden;
         }
         
+        .camera-container img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transition: opacity 0.3s ease;
+            z-index: 3;
+        }
+        
+        #camera-placeholder {
+            transition: opacity 0.3s ease;
+            z-index: 2;
+        }
+        
         .camera-container::before {
             content: '';
             position: absolute;
@@ -1158,12 +1173,11 @@ DASHBOARD_HTML = '''
                             <button class="btn-small" id="btn-open-gallery">Open Gallery</button>
                         </div>
                         <div class="camera-container" id="camera-view">
-                            <img id="camera-stream" src="/api/stream" alt="RealSense Stream" style="max-width: 100%; max-height: 100%; object-fit: contain; display: none;"
-                                 onerror="this.style.display='none'; document.getElementById('camera-placeholder').style.display='block';"
-                                 onload="this.style.display='block'; document.getElementById('camera-placeholder').style.display='none';">
-                            <div id="camera-placeholder" style="text-align: center; position: relative; z-index: 1;">
+                            <img id="camera-stream" src="/api/stream" alt="RealSense Stream" style="z-index: 3;">
+                            <div id="camera-placeholder" style="text-align: center; position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); pointer-events: none;">
                                 <div style="font-size: 48px; opacity: 0.5; margin-bottom: 10px;">📹</div>
                                 <div>RealSense Camera Stream</div>
+                                <div style="font-size: 11px; opacity: 0.6; margin-top: 8px;">Waiting for stream...</div>
                             </div>
                         </div>
                         <div class="camera-info">
@@ -1616,14 +1630,83 @@ DASHBOARD_HTML = '''
         const btnDepth = document.getElementById('btn-depth');
         const btnIr = document.getElementById('btn-ir');
         const cameraStream = document.getElementById('camera-stream');
+        const cameraPlaceholder = document.getElementById('camera-placeholder');
         
         function updateCameraStream() {
             if (!cameraStream) return;
             let url = '/api/stream';
             if (currentStream === 'depth') url = '/api/stream/depth';
             else if (currentStream === 'ir') url = '/api/stream/ir';
-            cameraStream.src = url + '?' + new Date().getTime();
+            
+            // Show placeholder while loading
+            if (cameraPlaceholder) {
+                cameraPlaceholder.style.display = 'flex';
+                cameraPlaceholder.style.opacity = '1';
+            }
+            cameraStream.style.opacity = '0';
+            
+            // Set new source - MJPEG streams automatically refresh
+            cameraStream.src = url;
+            
+            // Check if image loads successfully
+            const checkStream = () => {
+                if (cameraStream.complete && cameraStream.naturalWidth > 0 && cameraStream.naturalHeight > 0) {
+                    // Stream is working - hide placeholder
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.opacity = '0';
+                        setTimeout(() => {
+                            if (cameraPlaceholder) cameraPlaceholder.style.display = 'none';
+                        }, 300);
+                    }
+                    cameraStream.style.opacity = '1';
+                } else {
+                    // Still loading or failed
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.display = 'flex';
+                        cameraPlaceholder.style.opacity = '1';
+                    }
+                    cameraStream.style.opacity = '0';
+                }
+            };
+            
+            // Check immediately and on load/error events
+            cameraStream.onload = checkStream;
+            cameraStream.onerror = () => {
+                if (cameraPlaceholder) {
+                    cameraPlaceholder.style.display = 'flex';
+                    cameraPlaceholder.style.opacity = '1';
+                }
+                cameraStream.style.opacity = '0';
+            };
+            
+            // Also check periodically for MJPEG streams
+            setTimeout(checkStream, 500);
         }
+        
+        // Periodically check if stream is working (for MJPEG)
+        let streamCheckInterval = setInterval(() => {
+            if (cameraStream && cameraStream.complete) {
+                if (cameraStream.naturalWidth > 0 && cameraStream.naturalHeight > 0) {
+                    // Stream is working
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.opacity = '0';
+                        if (cameraPlaceholder.style.display !== 'none') {
+                            setTimeout(() => {
+                                if (cameraPlaceholder) cameraPlaceholder.style.display = 'none';
+                            }, 300);
+                        }
+                    }
+                    cameraStream.style.opacity = '1';
+                } else {
+                    // Stream not working
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.display = 'flex';
+                        cameraPlaceholder.style.opacity = '1';
+                    }
+                    cameraStream.style.opacity = '0';
+                }
+            }
+        }, 1000);
         
         btnRgb?.addEventListener('click', () => {
             currentStream = 'rgb';
@@ -1643,6 +1726,23 @@ DASHBOARD_HTML = '''
             btnIr.classList.add('active');
             updateCameraStream();
         });
+        
+        // Initialize camera stream on page load
+        window.addEventListener('load', () => {
+            if (cameraStream) {
+                // Give it a moment for DOM to be ready
+                setTimeout(() => {
+                    updateCameraStream();
+                }, 100);
+            }
+        });
+        
+        // Also initialize immediately if DOM is already loaded
+        if (document.readyState !== 'loading' && cameraStream) {
+            setTimeout(() => {
+                updateCameraStream();
+            }, 100);
+        }
 
         // Gallery
         const galleryModal = document.getElementById('gallery-modal');
