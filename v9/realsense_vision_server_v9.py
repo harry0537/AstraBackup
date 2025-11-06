@@ -239,21 +239,42 @@ class VisionServer:
                             "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt",
                             prototxt
                         )
+                        self.log("  ✓ Prototxt downloaded")
                     
                     # Download model
                     if not os.path.exists(model):
-                        self.log("  Downloading model weights (this may take a minute)...")
+                        self.log("  Downloading model weights (this may take 1-2 minutes, ~23MB)...")
                         urllib.request.urlretrieve(
                             "https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel",
                             model
                         )
+                        self.log("  ✓ Model weights downloaded")
                     
-                    self.log("  ✓ Model files downloaded")
+                    self.log("  ✓ Model files downloaded successfully")
                 except Exception as e:
                     self.log(f"  ✗ Failed to download model files: {e}")
+                    self.log(f"  ⚠ Error details: {type(e).__name__}")
                     self.log("  ⚠ Object detection will use fallback mode")
                     self.obj_detector = None
                     return
+            
+            # Verify files exist
+            if not os.path.exists(prototxt):
+                self.log(f"✗ Prototxt file not found: {prototxt}")
+                self.obj_detector = None
+                return
+            if not os.path.exists(model):
+                self.log(f"✗ Model file not found: {model}")
+                self.obj_detector = None
+                return
+            
+            # Check file sizes
+            prototxt_size = os.path.getsize(prototxt)
+            model_size = os.path.getsize(model)
+            self.log(f"  Model files: prototxt={prototxt_size} bytes, weights={model_size/1024/1024:.1f}MB")
+            
+            if model_size < 1000000:  # Less than 1MB is suspicious
+                self.log(f"  ⚠ Model file seems too small ({model_size} bytes), may be corrupted")
             
             # Try to load the model
             try:
@@ -267,11 +288,16 @@ class VisionServer:
                     except:
                         pass
                     self.obj_detector = net
-                    self.log(f"✓ Object detection initialized (MobileNet-SSD)")
+                    self.log(f"✓ Object detection initialized successfully (MobileNet-SSD)")
+                    self.log(f"  Ready to detect objects with confidence threshold: {OBJ_DETECT_CONFIDENCE_THRESHOLD}")
                     return
+                else:
+                    self.log("✗ Model loaded but returned None")
             except Exception as e:
                 self.log(f"✗ Failed to load model: {e}")
-                self.obj_detector = None
+                self.log(f"  Error type: {type(e).__name__}")
+                import traceback
+                self.log(f"  Traceback: {traceback.format_exc()}")
             
         except Exception as e:
             self.log(f"⚠ Object detection init failed: {e}")
@@ -282,9 +308,21 @@ class VisionServer:
         annotated = color_image.copy()
         
         if self.obj_detector is None:
-            # Fallback: draw a message indicating model is loading
+            # Fallback: draw a message indicating model status
             h, w = color_image.shape[:2]
-            text = "Object Detection: Model Loading..."
+            
+            # Check if model files exist to determine message
+            model_dir = os.path.join(OUTPUT_DIR, "models")
+            prototxt = os.path.join(model_dir, "MobileNetSSD_deploy.prototxt")
+            model = os.path.join(model_dir, "MobileNetSSD_deploy.caffemodel")
+            
+            if os.path.exists(prototxt) and os.path.exists(model):
+                text = "Object Detection: Model Failed to Load"
+                color = (0, 0, 255)  # Red
+            else:
+                text = "Object Detection: Downloading Model..."
+                color = (0, 255, 255)  # Cyan
+            
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.6
             thickness = 2
@@ -294,7 +332,14 @@ class VisionServer:
             cv2.rectangle(annotated, (10, 10), (10 + text_width + 10, 10 + text_height + baseline + 10),
                          (0, 0, 0), -1)
             # Draw text
-            cv2.putText(annotated, text, (15, 15 + text_height), font, font_scale, (0, 255, 255), thickness)
+            cv2.putText(annotated, text, (15, 15 + text_height), font, font_scale, color, thickness)
+            
+            # Add instruction text
+            inst_text = "Check logs for details"
+            inst_size, _ = cv2.getTextSize(inst_text, font, 0.4, 1)
+            cv2.putText(annotated, inst_text, (15, 15 + text_height + baseline + 20), 
+                       font, 0.4, (128, 128, 128), 1)
+            
             return annotated
         
         try:
@@ -351,9 +396,25 @@ class VisionServer:
                 if time.time() - self._last_detection_log > 5.0:
                     if detection_count > 0:
                         self.log(f"Object detection: {detection_count} objects found")
+                    else:
+                        # Log when no detections to help debug
+                        if hasattr(self, '_no_detection_count'):
+                            self._no_detection_count += 1
+                        else:
+                            self._no_detection_count = 1
+                        if self._no_detection_count % 10 == 0:  # Every 10 frames
+                            self.log(f"Object detection: No objects detected (confidence threshold: {OBJ_DETECT_CONFIDENCE_THRESHOLD})")
                     self._last_detection_log = time.time()
             else:
                 self._last_detection_log = time.time()
+                self._no_detection_count = 0
+            
+            # Draw detection status on image if no objects found
+            if detection_count == 0:
+                h, w = annotated.shape[:2]
+                status_text = f"No objects detected (threshold: {OBJ_DETECT_CONFIDENCE_THRESHOLD})"
+                cv2.putText(annotated, status_text, (10, h - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (128, 128, 128), 1)
             
             return annotated
             
