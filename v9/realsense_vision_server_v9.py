@@ -219,30 +219,59 @@ class VisionServer:
             np.random.seed(42)
             self.obj_colors = np.random.uniform(0, 255, size=(len(self.obj_classes), 3))
             
-            # Try to load MobileNet-SSD model files
-            # These will be downloaded automatically if not present
+            # Model directory
             model_dir = os.path.join(OUTPUT_DIR, "models")
             os.makedirs(model_dir, exist_ok=True)
             
             prototxt = os.path.join(model_dir, "MobileNetSSD_deploy.prototxt")
             model = os.path.join(model_dir, "MobileNetSSD_deploy.caffemodel")
             
-            # Download model if not present (simplified - will use OpenCV's built-in if available)
-            # For now, use a simple approach: try to load, if not available, use basic detection
+            # Download model files if not present
+            if not os.path.exists(prototxt) or not os.path.exists(model):
+                self.log("Downloading object detection model files...")
+                try:
+                    import urllib.request
+                    
+                    # Download prototxt
+                    if not os.path.exists(prototxt):
+                        self.log("  Downloading prototxt...")
+                        urllib.request.urlretrieve(
+                            "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt",
+                            prototxt
+                        )
+                    
+                    # Download model
+                    if not os.path.exists(model):
+                        self.log("  Downloading model weights (this may take a minute)...")
+                        urllib.request.urlretrieve(
+                            "https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel",
+                            model
+                        )
+                    
+                    self.log("  ✓ Model files downloaded")
+                except Exception as e:
+                    self.log(f"  ✗ Failed to download model files: {e}")
+                    self.log("  ⚠ Object detection will use fallback mode")
+                    self.obj_detector = None
+                    return
+            
+            # Try to load the model
             try:
-                # Check if OpenCV DNN can load the model
+                self.log("Loading object detection model...")
                 net = cv2.dnn.readNetFromCaffe(prototxt, model)
                 if net is not None:
+                    # Set backend and target (optional, for better performance)
+                    try:
+                        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+                    except:
+                        pass
                     self.obj_detector = net
                     self.log(f"✓ Object detection initialized (MobileNet-SSD)")
                     return
-            except:
-                pass
-            
-            # Fallback: use OpenCV's Haar Cascade or simple blob detection
-            # For now, mark as unavailable but log a message
-            self.log("⚠ Object detection model not found, using basic detection")
-            self.obj_detector = None
+            except Exception as e:
+                self.log(f"✗ Failed to load model: {e}")
+                self.obj_detector = None
             
         except Exception as e:
             self.log(f"⚠ Object detection init failed: {e}")
@@ -250,9 +279,23 @@ class VisionServer:
     
     def detect_objects(self, color_image):
         """Detect objects in RGB frame and return annotated image."""
+        annotated = color_image.copy()
+        
         if self.obj_detector is None:
-            # Simple fallback: return original image
-            return color_image.copy()
+            # Fallback: draw a message indicating model is loading
+            h, w = color_image.shape[:2]
+            text = "Object Detection: Model Loading..."
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            thickness = 2
+            (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+            
+            # Draw background rectangle
+            cv2.rectangle(annotated, (10, 10), (10 + text_width + 10, 10 + text_height + baseline + 10),
+                         (0, 0, 0), -1)
+            # Draw text
+            cv2.putText(annotated, text, (15, 15 + text_height), font, font_scale, (0, 255, 255), thickness)
+            return annotated
         
         try:
             h, w = color_image.shape[:2]
@@ -261,8 +304,7 @@ class VisionServer:
             self.obj_detector.setInput(blob)
             detections = self.obj_detector.forward()
             
-            # Create annotated image
-            annotated = color_image.copy()
+            detection_count = 0
             
             # Process detections
             for i in range(detections.shape[2]):
@@ -283,25 +325,45 @@ class VisionServer:
                     endX = max(0, min(endX, w))
                     endY = max(0, min(endY, h))
                     
+                    # Skip if box is too small or invalid
+                    if endX - startX < 10 or endY - startY < 10:
+                        continue
+                    
                     # Draw bounding box and label
                     label = f"{self.obj_classes[class_id]}: {confidence:.2f}"
                     color = self.obj_colors[class_id].astype(int).tolist()
                     
+                    # Draw thicker box
                     cv2.rectangle(annotated, (startX, startY), (endX, endY), color, 2)
                     
                     # Draw label background
-                    label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    label_size, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                     label_y = max(startY, label_size[1] + 10)
                     cv2.rectangle(annotated, (startX, label_y - label_size[1] - 10),
                                      (startX + label_size[0], label_y + 5), color, -1)
                     cv2.putText(annotated, label, (startX, label_y),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    
+                    detection_count += 1
+            
+            # Log detection count periodically (avoid spam)
+            if hasattr(self, '_last_detection_log'):
+                if time.time() - self._last_detection_log > 5.0:
+                    if detection_count > 0:
+                        self.log(f"Object detection: {detection_count} objects found")
+                    self._last_detection_log = time.time()
+            else:
+                self._last_detection_log = time.time()
             
             return annotated
             
         except Exception as e:
             self.log(f"✗ Object detection error: {e}")
-            return color_image.copy()
+            # Draw error message on image
+            h, w = color_image.shape[:2]
+            text = f"Detection Error: {str(e)[:30]}"
+            cv2.putText(annotated, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            return annotated
     
     def adjust_rgb_exposure(self, mean_brightness):
         """Adaptive exposure control."""
