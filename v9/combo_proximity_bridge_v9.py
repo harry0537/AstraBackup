@@ -221,26 +221,8 @@ class ComboProximityBridge:
         return False
 
     def connect_pixhawk(self):
-        """Connect to Pixhawk via MAVLink - Try UDP first to avoid serial conflicts"""
+        """Connect to Pixhawk via MAVLink - EXACTLY as v8"""
         try:
-            # Try UDP first (if Mission Planner or data relay is connected via serial)
-            # This allows multiple components to connect simultaneously
-            try:
-                print("Attempting UDP connection to Pixhawk (udp:127.0.0.1:14550)...")
-                self.mavlink = mavutil.mavlink_connection(
-                    'udp:127.0.0.1:14550',
-                    source_system=255,
-                    source_component=COMPONENT_ID
-                )
-                # For UDP, we don't wait for heartbeat as it might not be immediately available
-                # Just verify the connection is established
-                print("✓ UDP connection established (may need Mission Planner or mavproxy running)")
-                return True
-            except Exception as e:
-                print(f"  UDP failed: {e}, trying serial...")
-                self.mavlink = None
-            
-            # Fallback to serial connection
             candidates = [PIXHAWK_PORT] + [f'/dev/ttyACM{i}' for i in range(4)]
 
             for port in candidates:
@@ -255,18 +237,15 @@ class ComboProximityBridge:
                         source_component=COMPONENT_ID
                     )
                     self.mavlink.wait_heartbeat(timeout=5)
-                    print("✓ Pixhawk connected via serial")
+                    print("✓ Pixhawk connected")
                     return True
-                except Exception as e:
-                    print(f"  Serial {port} failed: {e}")
+                except:
                     self.mavlink = None
 
-            raise RuntimeError('No Pixhawk connection available (tried UDP and serial)')
+            raise RuntimeError('No Pixhawk port available')
 
         except Exception as e:
-            print(f"✗ Pixhawk connection failed: {e}")
-            print("  [NOTE] If data_relay_v9.py is using serial, proximity bridge will use UDP")
-            print("  [NOTE] Ensure Mission Planner is connected to forward messages to Pixhawk")
+            print(f"✗ Pixhawk failed: {e}")
             return False
 
     def lidar_thread(self):
@@ -626,23 +605,8 @@ class ComboProximityBridge:
             last_connection_check = time.time()
 
             while self.running:
-                # Check if MAVLink connection is still alive every 5 seconds
-                if time.time() - last_connection_check > 5.0:
-                    if self.mavlink:
-                        try:
-                            # Try to read a message to verify connection
-                            self.mavlink.recv_match(blocking=False, timeout=0.01)
-                        except:
-                            # Connection might be broken, try to reconnect
-                            print("\n[WARNING] MAVLink connection lost, attempting reconnect...")
-                            if not self.connect_pixhawk():
-                                print("[ERROR] Failed to reconnect to Pixhawk")
-                                time.sleep(5)  # Wait before retrying
-                    last_connection_check = time.time()
-                
                 if time.time() - last_send > 0.1:
-                    if self.mavlink:
-                        self.fuse_and_send()
+                    self.fuse_and_send()
                     last_send = time.time()
 
                 if time.time() - last_status > 1.0:
