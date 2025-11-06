@@ -912,29 +912,7 @@ DASHBOARD_HTML = '''
             width: 100%;
             height: 100%;
         }
-        .gallery-grid { 
-            display: none; 
-            margin-top: 8px;
-            overflow-x: auto;
-            overflow-y: hidden;
-        }
-        .gallery-grid.active { 
-            display: flex;
-            flex-direction: row;
-            gap: 8px;
-            padding-bottom: 4px;
-        }
-        .gallery-grid::-webkit-scrollbar {
-            height: 6px;
-        }
-        .gallery-grid::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.05);
-            border-radius: 3px;
-        }
-        .gallery-grid::-webkit-scrollbar-thumb {
-            background: var(--accent);
-            border-radius: 3px;
-        }
+        /* Old gallery-grid styles removed - using modal gallery now */
         .thumb {
             background: var(--card);
             border: 1px solid var(--card-border);
