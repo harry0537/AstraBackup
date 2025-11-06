@@ -558,9 +558,19 @@ DASHBOARD_HTML = '''
         
         .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
         .gallery-modal.open { display: flex; }
-        .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 10px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); }
-        #gallery-image { max-width: 88vw; max-height: 74vh; display: block; border-radius: 6px; }
-        .gallery-caption { margin-top: 6px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 20px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); overflow-y: auto; display: flex; flex-direction: column; }
+        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; max-height: 75vh; overflow-y: auto; padding: 10px; }
+        .gallery-item { position: relative; border: 1px solid rgba(0,255,255,0.15); border-radius: 8px; overflow: hidden; background: rgba(0,255,255,0.04); cursor: pointer; aspect-ratio: 4/3; min-height: 120px; }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .gallery-item:hover { border-color: rgba(0,255,255,0.5); transform: scale(1.05); transition: all 0.2s ease; }
+        .gallery-item .gallery-label { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,0.7); padding: 3px 8px; border-radius: 4px; color: white; }
+        #gallery-image { max-width: 88vw; max-height: 70vh; display: none; border-radius: 6px; margin: 0 auto; }
+        #gallery-image.show { display: block; }
+        .gallery-caption { margin-top: 10px; font-size: 12px; color: var(--muted); display: none; flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .gallery-caption.show { display: flex; }
+        .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .gallery-header h3 { margin: 0; color: var(--cyan); font-size: 18px; }
+        .no-images-msg { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 14px; }
         
         .logs-container::-webkit-scrollbar {
             width: 6px;
@@ -1260,10 +1270,14 @@ DASHBOARD_HTML = '''
     <!-- Gallery Modal -->
     <div class="gallery-modal" id="gallery-modal" aria-hidden="true">
         <div class="gallery-modal-content">
-            <img id="gallery-image" alt="Crop capture" />
-            <div class="gallery-caption">
-                <span id="gallery-caption"></span>
+            <div class="gallery-header">
+                <h3>📸 Crop Image Gallery</h3>
                 <button class="btn-small" id="gallery-close">Close</button>
+            </div>
+            <img id="gallery-image" alt="Crop capture" />
+            <div class="gallery-caption" id="gallery-caption-div">
+                <span id="gallery-caption"></span>
+                <button class="btn-small" id="gallery-back">Back to Gallery</button>
             </div>
         </div>
     </div>
@@ -1761,48 +1775,63 @@ DASHBOARD_HTML = '''
                 })
                 .then(data => {
                     console.log('Gallery data:', data);
+                    const modalContent = document.querySelector('.gallery-modal-content');
+                    
+                    // Hide large image view
+                    galleryImg.classList.remove('show');
+                    document.getElementById('gallery-caption-div').classList.remove('show');
+                    
                     if (!data.images || data.images.length === 0) {
                         // Show message if no images
-                        const modalContent = document.querySelector('.gallery-modal-content');
-                        if (modalContent) {
-                            const existingMsg = modalContent.querySelector('.no-images-msg');
-                            if (!existingMsg) {
-                                const msg = document.createElement('div');
-                                msg.className = 'no-images-msg';
-                                msg.style.cssText = 'padding: 20px; text-align: center; color: var(--muted);';
-                                msg.textContent = 'No crop images available yet. Images are captured every 10 seconds.';
-                                modalContent.insertBefore(msg, modalContent.firstChild);
-                            }
+                        const existingMsg = modalContent.querySelector('.no-images-msg');
+                        const existingGrid = modalContent.querySelector('.gallery-grid');
+                        if (existingGrid) existingGrid.remove();
+                        if (!existingMsg) {
+                            const msg = document.createElement('div');
+                            msg.className = 'no-images-msg';
+                            msg.textContent = 'No crop images available yet. Images are captured every 10 seconds.';
+                            modalContent.appendChild(msg);
                         }
                         return;
                     }
+                    
                     // Remove any "no images" message
-                    const existingMsg = document.querySelector('.no-images-msg');
+                    const existingMsg = modalContent.querySelector('.no-images-msg');
                     if (existingMsg) existingMsg.remove();
                     
                     // Remove existing grid if present
-                    const existingGrid = document.querySelector('.gallery-modal-content .gallery-grid');
+                    const existingGrid = modalContent.querySelector('.gallery-grid');
                     if (existingGrid) existingGrid.remove();
                     
+                    // Create gallery grid
                     const grid = document.createElement('div');
                     grid.className = 'gallery-grid';
                     grid.innerHTML = data.images.map(img => `
                         <div class="gallery-item" data-src="/api/crop/archive/${img.filename}" data-caption="${img.filename} • ${img.time}">
-                            <img src="/api/crop/archive/${img.filename}" alt="${img.filename}" onerror="this.style.display='none'; this.parentElement.style.border='2px solid red';">
+                            <img src="/api/crop/archive/${img.filename}?t=${Date.now()}" alt="${img.filename}" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22105%22%3E%3Crect fill=%22%23333%22 width=%22140%22 height=%22105%22/%3E%3Ctext fill=%22%23999%22 font-family=%22sans-serif%22 font-size=%2212%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3EBroken%3C/text%3E%3C/svg%3E';">
                             <span class="gallery-label">${img.time}</span>
                         </div>
                     `).join('');
-                    const modalContent = document.querySelector('.gallery-modal-content');
-                    if (modalContent) {
-                        modalContent.insertBefore(grid, modalContent.firstChild);
-                    }
+                    
+                    modalContent.appendChild(grid);
+                    
+                    // Add click handlers to thumbnails
                     document.querySelectorAll('.gallery-item').forEach(item => {
                         item.addEventListener('click', () => {
-                            galleryImg.src = item.getAttribute('data-src');
-                            galleryCap.textContent = item.getAttribute('data-caption');
+                            const src = item.getAttribute('data-src');
+                            const caption = item.getAttribute('data-caption');
+                            
+                            // Hide grid, show large image
+                            grid.style.display = 'none';
+                            galleryImg.src = src + '?t=' + Date.now();
+                            galleryImg.alt = caption;
+                            galleryImg.classList.add('show');
+                            galleryCap.textContent = caption;
+                            document.getElementById('gallery-caption-div').classList.add('show');
+                            
                             galleryImg.onerror = () => {
-                                galleryImg.src = '';
                                 galleryImg.alt = 'Failed to load image';
+                                galleryImg.src = '';
                             };
                         });
                     });
@@ -1810,25 +1839,48 @@ DASHBOARD_HTML = '''
                 .catch(error => {
                     console.error('Error loading gallery:', error);
                     const modalContent = document.querySelector('.gallery-modal-content');
-                    if (modalContent) {
-                        const existingMsg = modalContent.querySelector('.no-images-msg');
-                        if (!existingMsg) {
-                            const msg = document.createElement('div');
-                            msg.className = 'no-images-msg';
-                            msg.style.cssText = 'padding: 20px; text-align: center; color: var(--red);';
-                            msg.textContent = `Error loading gallery: ${error.message}`;
-                            modalContent.insertBefore(msg, modalContent.firstChild);
-                        }
+                    const existingMsg = modalContent.querySelector('.no-images-msg');
+                    const existingGrid = modalContent.querySelector('.gallery-grid');
+                    if (existingGrid) existingGrid.remove();
+                    if (!existingMsg) {
+                        const msg = document.createElement('div');
+                        msg.className = 'no-images-msg';
+                        msg.textContent = `Error loading gallery: ${error.message}`;
+                        modalContent.appendChild(msg);
                     }
                 });
         }
         
         btnOpenGallery?.addEventListener('click', () => {
-            if (!galleryModal.querySelector('.gallery-grid')) loadGallery();
+            loadGallery();
             galleryModal.classList.add('open');
         });
-        galleryClose?.addEventListener('click', () => galleryModal.classList.remove('open'));
-        galleryModal?.addEventListener('click', (e) => { if (e.target === galleryModal) galleryModal.classList.remove('open'); });
+        galleryClose?.addEventListener('click', () => {
+            galleryModal.classList.remove('open');
+            // Reset view when closing
+            galleryImg.classList.remove('show');
+            document.getElementById('gallery-caption-div').classList.remove('show');
+            const grid = document.querySelector('.gallery-grid');
+            if (grid) grid.style.display = 'grid';
+        });
+        const galleryBack = document.getElementById('gallery-back');
+        galleryBack?.addEventListener('click', () => {
+            // Back to gallery view
+            galleryImg.classList.remove('show');
+            document.getElementById('gallery-caption-div').classList.remove('show');
+            const grid = document.querySelector('.gallery-grid');
+            if (grid) grid.style.display = 'grid';
+        });
+        galleryModal?.addEventListener('click', (e) => { 
+            if (e.target === galleryModal) {
+                galleryModal.classList.remove('open');
+                // Reset view when closing
+                galleryImg.classList.remove('show');
+                document.getElementById('gallery-caption-div').classList.remove('show');
+                const grid = document.querySelector('.gallery-grid');
+                if (grid) grid.style.display = 'grid';
+            }
+        });
 
         // Fetch real data from API
         function updateDashboard() {
