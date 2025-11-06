@@ -467,38 +467,39 @@ class ComboProximityBridge:
                 elif rsc[i] < self.max_distance_cm:
                     fused[i] = rsc[i]
 
-        # Send to Pixhawk
+        # Send to Pixhawk (EXACTLY as v8)
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
-        messages_sent_count = 0
+        
+        # Debug: Print first few sends to verify format
+        debug_sent = False
         
         for sector_id, distance_cm in enumerate(fused):
             try:
-                # Ensure distance is within valid range
-                current_distance = int(distance_cm)
-                if current_distance < self.min_distance_cm:
-                    current_distance = self.min_distance_cm
-                elif current_distance > self.max_distance_cm:
-                    current_distance = self.max_distance_cm
-                
-                # Send DISTANCE_SENSOR message (exactly as v8)
+                # Send exactly as v8 does - no extra validation
                 self.mavlink.mav.distance_sensor_send(
                     time_boot_ms=timestamp,
                     min_distance=self.min_distance_cm,
                     max_distance=self.max_distance_cm,
-                    current_distance=current_distance,
+                    current_distance=int(distance_cm),
                     type=0,
                     id=sector_id,
                     orientation=orientations[sector_id],
                     covariance=0
                 )
-                messages_sent_count += 1
+                
+                # Debug output for first batch only
+                if not debug_sent and sector_id < 3:
+                    print(f"[DEBUG] Sent sector {sector_id}: {int(distance_cm)}cm, orientation={orientations[sector_id]}, type=0")
+                    if sector_id == 2:
+                        debug_sent = True
+                        
             except Exception as e:
-                # Silent fail like v8, but log first error for debugging
-                if messages_sent_count == 0 and sector_id == 0:
-                    print(f"[ERROR] Failed to send DISTANCE_SENSOR: {e}")
+                # Log first error for debugging
+                if sector_id == 0:
+                    print(f"[ERROR] Failed to send DISTANCE_SENSOR sector 0: {e}")
 
-        self.stats['messages_sent'] += messages_sent_count
+        self.stats['messages_sent'] += self.num_sectors
 
         # Publish status
         try:
@@ -527,6 +528,9 @@ class ComboProximityBridge:
         with self.lock:
             lidar_min = min(self.lidar_sectors)
             rs_min = min(self.realsense_sectors)
+            # Get sample of fused data for debugging
+            lidar_sample = self.lidar_sectors[:3]
+            rs_sample = self.realsense_sectors[:3]
 
         # Status display
         vision_status = "✓" if self.vision_server_available else "✗"
@@ -537,10 +541,15 @@ class ComboProximityBridge:
         elapsed = max(1, uptime)
         msg_rate = self.stats['messages_sent'] / elapsed
         
+        # Show sample data every 5 seconds for debugging
+        debug_info = ""
+        if uptime % 5 == 0:
+            debug_info = f" | L[{lidar_sample[0]/100:.1f},{lidar_sample[1]/100:.1f},{lidar_sample[2]/100:.1f}] R[{rs_sample[0]/100:.1f},{rs_sample[1]/100:.1f},{rs_sample[2]/100:.1f}]"
+        
         print(f"\r[{uptime:3d}s] "
               f"MAV:{mavlink_status} Vision:{vision_status} Forward(RS):{rs_min/100:.1f}m | "
               f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
-              f"TX:{self.stats['messages_sent']:5d} ({msg_rate:.1f}/s)", end='', flush=True)
+              f"TX:{self.stats['messages_sent']:5d} ({msg_rate:.1f}/s){debug_info}", end='', flush=True)
 
     def run(self):
         """Main execution"""
