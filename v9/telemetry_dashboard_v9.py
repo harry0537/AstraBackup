@@ -1753,30 +1753,74 @@ DASHBOARD_HTML = '''
         
         function loadGallery() {
             fetch('/api/crop/list')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    if (!data.images || data.images.length === 0) return;
+                    console.log('Gallery data:', data);
+                    if (!data.images || data.images.length === 0) {
+                        // Show message if no images
+                        const modalContent = document.querySelector('.gallery-modal-content');
+                        if (modalContent) {
+                            const existingMsg = modalContent.querySelector('.no-images-msg');
+                            if (!existingMsg) {
+                                const msg = document.createElement('div');
+                                msg.className = 'no-images-msg';
+                                msg.style.cssText = 'padding: 20px; text-align: center; color: var(--muted);';
+                                msg.textContent = 'No crop images available yet. Images are captured every 10 seconds.';
+                                modalContent.insertBefore(msg, modalContent.firstChild);
+                            }
+                        }
+                        return;
+                    }
+                    // Remove any "no images" message
+                    const existingMsg = document.querySelector('.no-images-msg');
+                    if (existingMsg) existingMsg.remove();
+                    
+                    // Remove existing grid if present
+                    const existingGrid = document.querySelector('.gallery-modal-content .gallery-grid');
+                    if (existingGrid) existingGrid.remove();
+                    
                     const grid = document.createElement('div');
                     grid.className = 'gallery-grid';
                     grid.innerHTML = data.images.map(img => `
                         <div class="gallery-item" data-src="/api/crop/archive/${img.filename}" data-caption="${img.filename} • ${img.time}">
-                            <img src="/api/crop/archive/${img.filename}" alt="${img.filename}">
+                            <img src="/api/crop/archive/${img.filename}" alt="${img.filename}" onerror="this.style.display='none'; this.parentElement.style.border='2px solid red';">
                             <span class="gallery-label">${img.time}</span>
                         </div>
                     `).join('');
                     const modalContent = document.querySelector('.gallery-modal-content');
-                    if (modalContent && !modalContent.querySelector('.gallery-grid')) {
+                    if (modalContent) {
                         modalContent.insertBefore(grid, modalContent.firstChild);
                     }
                     document.querySelectorAll('.gallery-item').forEach(item => {
                         item.addEventListener('click', () => {
                             galleryImg.src = item.getAttribute('data-src');
                             galleryCap.textContent = item.getAttribute('data-caption');
-                            galleryModal.classList.add('open');
+                            galleryImg.onerror = () => {
+                                galleryImg.src = '';
+                                galleryImg.alt = 'Failed to load image';
+                            };
                         });
                     });
                 })
-                .catch(error => console.error('Error loading gallery:', error));
+                .catch(error => {
+                    console.error('Error loading gallery:', error);
+                    const modalContent = document.querySelector('.gallery-modal-content');
+                    if (modalContent) {
+                        const existingMsg = modalContent.querySelector('.no-images-msg');
+                        if (!existingMsg) {
+                            const msg = document.createElement('div');
+                            msg.className = 'no-images-msg';
+                            msg.style.cssText = 'padding: 20px; text-align: center; color: var(--red);';
+                            msg.textContent = `Error loading gallery: ${error.message}`;
+                            modalContent.insertBefore(msg, modalContent.firstChild);
+                        }
+                    }
+                });
         }
         
         btnOpenGallery?.addEventListener('click', () => {

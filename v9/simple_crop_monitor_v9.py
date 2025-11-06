@@ -228,7 +228,9 @@ class SimpleCropMonitor:
             self.current_slot = (self.current_slot % 10) + 1
             
             # Debug output
-            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Image #{self.capture_count} → slot {next_slot} (archive: {num_archived}/{MAX_IMAGES})", end='')
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Image #{self.capture_count} → slot {next_slot} (archive: {num_archived}/{MAX_IMAGES})")
+            print(f"  Archive: {archive_path} ({os.path.getsize(archive_path) if os.path.exists(archive_path) else 0} bytes)")
+            print(f"  Dashboard: {dashboard_path} ({os.path.getsize(dashboard_path) if os.path.exists(dashboard_path) else 0} bytes)")
 
             # Write status file
             try:
