@@ -40,7 +40,6 @@ VISION_STATUS_FILE = os.path.join(VISION_SERVER_DIR, "status.json")
 # Create directories if they don't exist
 os.makedirs(IMAGE_DIR, exist_ok=True)
 os.makedirs(DASHBOARD_DIR, exist_ok=True)
-os.makedirs(DASHBOARD_DIR, exist_ok=True)
 
 
 class SimpleCropMonitor:

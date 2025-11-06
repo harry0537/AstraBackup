@@ -2152,19 +2152,34 @@ def serve_archive_file(filename):
     """Serve a specific archived image safely from /tmp/crop_archive"""
     from flask import send_file, abort, Response
     safe_dir = '/tmp/crop_archive'
-    full_path = os.path.join(safe_dir, os.path.basename(filename))
+    # Sanitize filename to prevent directory traversal
+    filename = os.path.basename(filename)
+    if not filename.startswith('crop_') or not filename.endswith('.jpg'):
+        return abort(404)
+    full_path = os.path.join(safe_dir, filename)
     if not os.path.exists(full_path):
+        return abort(404)
+    # Check file size - if 0 bytes, it's corrupted
+    try:
+        file_size = os.path.getsize(full_path)
+        if file_size == 0:
+            return abort(404)
+    except:
         return abort(404)
     try:
         with open(full_path, 'rb') as f:
             data = f.read()
+        # Verify it's actually image data (JPEG starts with FF D8)
+        if len(data) < 2 or data[:2] != b'\xff\xd8':
+            return abort(404)
         resp = Response(data, mimetype='image/jpeg')
         resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         resp.headers['Pragma'] = 'no-cache'
         resp.headers['Expires'] = '0'
+        resp.headers['Content-Length'] = str(len(data))
         return resp
     except Exception as e:
-        print(f"Error serving archive file: {e}")
+        print(f"Error serving archive file {filename}: {e}")
         return abort(404)
 
 @app.route('/api/crop/list')
