@@ -623,10 +623,26 @@ class ComboProximityBridge:
         try:
             last_send = time.time()
             last_status = time.time()
+            last_connection_check = time.time()
 
             while self.running:
+                # Check if MAVLink connection is still alive every 5 seconds
+                if time.time() - last_connection_check > 5.0:
+                    if self.mavlink:
+                        try:
+                            # Try to read a message to verify connection
+                            self.mavlink.recv_match(blocking=False, timeout=0.01)
+                        except:
+                            # Connection might be broken, try to reconnect
+                            print("\n[WARNING] MAVLink connection lost, attempting reconnect...")
+                            if not self.connect_pixhawk():
+                                print("[ERROR] Failed to reconnect to Pixhawk")
+                                time.sleep(5)  # Wait before retrying
+                    last_connection_check = time.time()
+                
                 if time.time() - last_send > 0.1:
-                    self.fuse_and_send()
+                    if self.mavlink:
+                        self.fuse_and_send()
                     last_send = time.time()
 
                 if time.time() - last_status > 1.0:
