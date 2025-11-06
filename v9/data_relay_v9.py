@@ -85,27 +85,36 @@ class DataRelay:
         if not self.mavlink:
             return
 
-        msg = self.mavlink.recv_match(blocking=False)
-        if not msg:
-            return
+        # Process multiple messages to catch all telemetry updates
+        for _ in range(10):  # Process up to 10 messages per call
+            msg = self.mavlink.recv_match(blocking=False)
+            if not msg:
+                break
 
-        msg_type = msg.get_type()
+            msg_type = msg.get_type()
 
-        if msg_type == 'GPS_RAW_INT':
-            self.telemetry['gps']['lat'] = msg.lat / 1e7
-            self.telemetry['gps']['lon'] = msg.lon / 1e7
-            self.telemetry['gps']['alt'] = msg.alt / 1000
-            self.telemetry['gps']['fix'] = msg.fix_type
+            if msg_type == 'GPS_RAW_INT':
+                self.telemetry['gps']['lat'] = msg.lat / 1e7
+                self.telemetry['gps']['lon'] = msg.lon / 1e7
+                self.telemetry['gps']['alt'] = msg.alt / 1000
+                self.telemetry['gps']['fix'] = msg.fix_type
+                # Debug: Print GPS update occasionally
+                if hasattr(self, '_last_gps_print'):
+                    if time.time() - self._last_gps_print > 5.0:
+                        print(f"\n[GPS] lat={self.telemetry['gps']['lat']:.7f}, lon={self.telemetry['gps']['lon']:.7f}, fix={self.telemetry['gps']['fix']}")
+                        self._last_gps_print = time.time()
+                else:
+                    self._last_gps_print = time.time()
 
-        elif msg_type == 'ATTITUDE':
-            self.telemetry['attitude']['roll'] = msg.roll
-            self.telemetry['attitude']['pitch'] = msg.pitch
-            self.telemetry['attitude']['yaw'] = msg.yaw
+            elif msg_type == 'ATTITUDE':
+                self.telemetry['attitude']['roll'] = msg.roll
+                self.telemetry['attitude']['pitch'] = msg.pitch
+                self.telemetry['attitude']['yaw'] = msg.yaw
 
-        elif msg_type == 'SYS_STATUS':
-            self.telemetry['battery']['voltage'] = msg.voltage_battery / 1000
-            self.telemetry['battery']['current'] = msg.current_battery / 100
-            self.telemetry['battery']['remaining'] = msg.battery_remaining
+            elif msg_type == 'SYS_STATUS':
+                self.telemetry['battery']['voltage'] = msg.voltage_battery / 1000
+                self.telemetry['battery']['current'] = msg.current_battery / 100
+                self.telemetry['battery']['remaining'] = msg.battery_remaining
 
     def send_telemetry(self):
         """Send telemetry to dashboard"""
@@ -131,9 +140,15 @@ class DataRelay:
                 timeout=2
             )
             if response.status_code == 200:
+                # Debug: Log GPS data if available
+                if self.telemetry.get('gps', {}).get('lat', 0) != 0:
+                    gps = self.telemetry['gps']
+                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Telemetry sent: GPS lat={gps['lat']:.7f}, lon={gps['lon']:.7f}, fix={gps['fix']}", end='', flush=True)
                 return True
-        except:
-            pass
+            else:
+                print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Telemetry send failed: HTTP {response.status_code}", end='', flush=True)
+        except Exception as e:
+            print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Telemetry send error: {e}", end='', flush=True)
         return False
 
     def send_image(self):

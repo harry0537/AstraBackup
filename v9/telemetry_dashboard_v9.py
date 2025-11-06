@@ -2169,6 +2169,39 @@ def get_telemetry():
             return jsonify({'status': 'error', 'message': str(e)}), 400
     return jsonify(telemetry_data)
 
+@app.route('/telemetry', methods=['POST'])
+def receive_telemetry():
+    """Accept POST telemetry updates from data relay (alternative endpoint)"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data received'}), 400
+        
+        # Update GPS data if provided
+        if 'gps' in data:
+            telemetry_data['gps'].update(data['gps'])
+            print(f"[TELEMETRY] GPS updated: lat={data['gps'].get('lat', 0):.7f}, lon={data['gps'].get('lon', 0):.7f}, fix={data['gps'].get('fix', 0)}")
+        
+        # Update attitude data if provided
+        if 'attitude' in data:
+            telemetry_data['attitude'].update(data['attitude'])
+        
+        # Update battery data if provided
+        if 'battery' in data:
+            telemetry_data['battery'].update(data['battery'])
+        
+        # Update proximity data if provided
+        if 'proximity' in data and 'sectors_cm' in data['proximity']:
+            telemetry_data['proximity'] = data['proximity']['sectors_cm']
+        
+        telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        print(f"[ERROR] Failed to update telemetry: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
 @app.route('/api/proximity/<int:sector>/<int:distance>')
 def update_proximity(sector, distance):
     """Update proximity data for a specific sector"""
