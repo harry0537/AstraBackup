@@ -472,7 +472,10 @@ class ComboProximityBridge:
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
         
         # Debug: Print first few sends to verify format
-        debug_sent = False
+        if not hasattr(self, '_debug_printed'):
+            self._debug_printed = False
+        
+        successful_sends = 0
         
         for sector_id, distance_cm in enumerate(fused):
             try:
@@ -487,19 +490,28 @@ class ComboProximityBridge:
                     orientation=orientations[sector_id],
                     covariance=0
                 )
+                successful_sends += 1
                 
                 # Debug output for first batch only
-                if not debug_sent and sector_id < 3:
-                    print(f"[DEBUG] Sent sector {sector_id}: {int(distance_cm)}cm, orientation={orientations[sector_id]}, type=0")
+                if not self._debug_printed and sector_id < 3:
+                    print(f"\n[DEBUG] Sent sector {sector_id}: {int(distance_cm)}cm, orientation={orientations[sector_id]}, type=0, id={sector_id}")
                     if sector_id == 2:
-                        debug_sent = True
+                        self._debug_printed = True
+                        print(f"[DEBUG] First 3 sectors sent successfully. All 8 sectors sending at 10Hz.\n")
                         
             except Exception as e:
                 # Log first error for debugging
-                if sector_id == 0:
-                    print(f"[ERROR] Failed to send DISTANCE_SENSOR sector 0: {e}")
+                if successful_sends == 0 and sector_id == 0:
+                    print(f"\n[ERROR] Failed to send DISTANCE_SENSOR sector 0: {e}")
+                    print(f"[ERROR] MAVLink connection may be broken. Check Pixhawk connection.")
 
-        self.stats['messages_sent'] += self.num_sectors
+        if successful_sends > 0:
+            self.stats['messages_sent'] += successful_sends
+        else:
+            # All sends failed - connection might be broken
+            if not hasattr(self, '_last_warning_time') or time.time() - self._last_warning_time > 10:
+                print(f"[WARNING] All {self.num_sectors} DISTANCE_SENSOR messages failed to send!")
+                self._last_warning_time = time.time()
 
         # Publish status
         try:

@@ -12,25 +12,60 @@ def test_receive_messages():
     print("=" * 60)
     print("Proximity Bridge MAVLink Message Test")
     print("=" * 60)
-    print("\nListening for DISTANCE_SENSOR messages...")
-    print("Make sure combo_proximity_bridge_v9.py is running!\n")
+    print("\nNOTE: This script connects to Pixhawk via UDP (Mission Planner style)")
+    print("If proximity bridge is already using /dev/ttyACM0, use Mission Planner instead")
+    print("Or check /tmp/proximity_v9.json for sensor data\n")
     
-    # Try to connect to Pixhawk
+    # Check if proximity bridge is running
+    import os
+    proximity_file = "/tmp/proximity_v9.json"
+    if os.path.exists(proximity_file):
+        try:
+            import json
+            with open(proximity_file, 'r') as f:
+                data = json.load(f)
+            print(f"✓ Proximity bridge is running (last update: {data.get('timestamp', 'unknown')})")
+            print(f"  Sectors: {data.get('sectors_cm', [])}")
+            print(f"  Messages sent: {data.get('messages_sent', 0)}")
+        except Exception as e:
+            print(f"⚠ Could not read proximity file: {e}")
+    else:
+        print("✗ Proximity bridge not running or not writing data")
+        print("  Make sure combo_proximity_bridge_v9.py is running!")
+        return
+    
+    # Try UDP connection (won't conflict with serial)
+    print("\nTrying UDP connection (for Mission Planner style)...")
+    try:
+        mavlink = mavutil.mavlink_connection('udp:127.0.0.1:14550', input=False)
+        print("✓ UDP connection ready (but may not receive serial messages)")
+        print("  Use Mission Planner to check for DISTANCE_SENSOR messages")
+        return
+    except:
+        pass
+    
+    # Try to connect to Pixhawk via serial (may conflict if proximity bridge is using it)
     candidates = ['/dev/ttyACM0'] + [f'/dev/ttyACM{i}' for i in range(1, 4)]
     mavlink = None
     
     for port in candidates:
         try:
-            print(f"Trying {port}...")
+            print(f"\nTrying {port}...")
             mavlink = mavutil.mavlink_connection(port, baud=57600)
             mavlink.wait_heartbeat(timeout=3)
             print(f"✓ Connected to Pixhawk at {port}")
             break
-        except:
+        except Exception as e:
+            if "multiple access" in str(e).lower() or "device" in str(e).lower():
+                print(f"  ⚠ Port in use (proximity bridge likely using it): {e}")
+                print("  → Use Mission Planner to check for DISTANCE_SENSOR messages instead")
+                return
             continue
     
     if not mavlink:
-        print("✗ Failed to connect to Pixhawk")
+        print("\n✗ Failed to connect to Pixhawk")
+        print("  The proximity bridge may already be using the serial port")
+        print("  Check Mission Planner → Ctrl-F → MAVLink Inspector for DISTANCE_SENSOR messages")
         return
     
     # Listen for messages
