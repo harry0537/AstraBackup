@@ -27,8 +27,16 @@ COMPONENTS = [
         'name': 'Proximity Bridge',
         'script': 'combo_proximity_bridge_v9.py',
         'critical': True,
-        'startup_delay': 2,
+        'startup_delay': 3,  # Start AFTER Vision Server, BEFORE Data Relay
         'health_check': lambda: os.path.exists('/tmp/proximity_v9.json')
+    },
+    {
+        'id': 197,
+        'name': 'Data Relay',
+        'script': 'data_relay_v9.py',
+        'critical': False,
+        'startup_delay': 2,  # Start AFTER Proximity Bridge (so it can still read telemetry)
+        'health_check': None
     },
     {
         'id': 198,
@@ -44,14 +52,6 @@ COMPONENTS = [
         'script': 'telemetry_dashboard_v9.py',
         'critical': False,
         'startup_delay': 2,
-        'health_check': None
-    },
-    {
-        'id': 197,
-        'name': 'Data Relay',
-        'script': 'data_relay_v9.py',
-        'critical': False,
-        'startup_delay': 0,
         'health_check': None
     }
 ]

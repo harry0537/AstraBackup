@@ -53,8 +53,25 @@ class DataRelay:
         self.images_sent = 0
 
     def connect_pixhawk(self):
-        """Connect to Pixhawk for telemetry"""
+        """Connect to Pixhawk for telemetry - Try UDP first to avoid serial conflicts"""
         try:
+            # Try UDP first (if proximity bridge is using serial)
+            # This allows both components to run simultaneously
+            try:
+                print("Attempting UDP connection to Pixhawk (udp:127.0.0.1:14550)...")
+                self.mavlink = mavutil.mavlink_connection(
+                    'udp:127.0.0.1:14550',
+                    source_system=255,
+                    source_component=COMPONENT_ID
+                )
+                # For UDP, we don't wait for heartbeat as it might not be immediately available
+                print("✓ Connected to Pixhawk via UDP (may need mavproxy or Mission Planner)")
+                return True
+            except Exception as e:
+                print(f"  UDP failed: {e}, trying serial...")
+                self.mavlink = None
+            
+            # Fallback to serial (only if UDP fails)
             candidates = [PIXHAWK_PORT] + [f'/dev/ttyACM{i}' for i in range(4)]
 
             for port in candidates:
@@ -69,9 +86,10 @@ class DataRelay:
                         source_component=COMPONENT_ID
                     )
                     self.mavlink.wait_heartbeat(timeout=5)
-                    print("✓ Connected to Pixhawk")
+                    print("✓ Connected to Pixhawk via serial")
                     return True
-                except:
+                except Exception as e:
+                    print(f"  Serial {port} failed: {e}")
                     self.mavlink = None
 
             print("⚠ Pixhawk not available (running in demo mode)")

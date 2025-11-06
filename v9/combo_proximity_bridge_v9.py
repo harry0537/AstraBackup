@@ -465,7 +465,7 @@ class ComboProximityBridge:
                 elif rsc[i] < self.max_distance_cm:
                     fused[i] = rsc[i]
 
-        # Send to Pixhawk
+        # Send to Pixhawk - EXACTLY as v8
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
         for sector_id, distance_cm in enumerate(fused):
@@ -482,6 +482,13 @@ class ComboProximityBridge:
                 )
             except:
                 pass
+        
+        # Flush to ensure messages are sent immediately
+        try:
+            if self.mavlink:
+                self.mavlink.flush()
+        except:
+            pass
 
         self.stats['messages_sent'] += self.num_sectors
 
@@ -602,7 +609,6 @@ class ComboProximityBridge:
         try:
             last_send = time.time()
             last_status = time.time()
-            last_connection_check = time.time()
 
             while self.running:
                 if time.time() - last_send > 0.1:
