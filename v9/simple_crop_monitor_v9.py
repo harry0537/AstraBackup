@@ -12,6 +12,11 @@ try:
 except Exception as e:
     CV2_AVAILABLE = False
     print(f"[ERROR] OpenCV not available: {e}")
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 import time
 import os
 import glob
@@ -34,6 +39,7 @@ VISION_STATUS_FILE = os.path.join(VISION_SERVER_DIR, "status.json")
 
 # Create directories if they don't exist
 os.makedirs(IMAGE_DIR, exist_ok=True)
+os.makedirs(DASHBOARD_DIR, exist_ok=True)
 os.makedirs(DASHBOARD_DIR, exist_ok=True)
 
 
@@ -163,11 +169,51 @@ class SimpleCropMonitor:
             self.manage_image_archive()
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             archive_path = os.path.join(IMAGE_DIR, f"crop_{timestamp}.jpg")
-            ok_archive = cv2.imwrite(archive_path, image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            
+            # Try OpenCV first, fallback to PIL if needed
+            ok_archive = False
+            try:
+                ok_archive = cv2.imwrite(archive_path, image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if not ok_archive or not os.path.exists(archive_path) or os.path.getsize(archive_path) == 0:
+                    raise RuntimeError("OpenCV write failed or file is empty")
+            except Exception:
+                # Fallback to PIL
+                if PIL_AVAILABLE:
+                    try:
+                        # Convert BGR to RGB for PIL
+                        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                        pil_image = Image.fromarray(rgb_image)
+                        pil_image.save(archive_path, 'JPEG', quality=70)
+                        ok_archive = os.path.exists(archive_path) and os.path.getsize(archive_path) > 0
+                    except Exception as e:
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ PIL fallback failed: {e}", end='')
+                else:
+                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No PIL available for fallback", end='')
 
             # 2. Save to dashboard rolling buffer (1-10)
             dashboard_path = os.path.join(DASHBOARD_DIR, f"{self.current_slot}.jpg")
-            ok_dash = cv2.imwrite(dashboard_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            
+            # Ensure dashboard directory exists
+            os.makedirs(DASHBOARD_DIR, exist_ok=True)
+            
+            ok_dash = False
+            try:
+                ok_dash = cv2.imwrite(dashboard_path, image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if not ok_dash or not os.path.exists(dashboard_path) or os.path.getsize(dashboard_path) == 0:
+                    raise RuntimeError("OpenCV write failed or file is empty")
+            except Exception:
+                # Fallback to PIL
+                if PIL_AVAILABLE:
+                    try:
+                        # Convert BGR to RGB for PIL
+                        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                        pil_image = Image.fromarray(rgb_image)
+                        pil_image.save(dashboard_path, 'JPEG', quality=85)
+                        ok_dash = os.path.exists(dashboard_path) and os.path.getsize(dashboard_path) > 0
+                    except Exception as e:
+                        print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ PIL fallback failed for dashboard: {e}", end='')
+                else:
+                    print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No PIL available for fallback", end='')
 
             if not ok_archive or not ok_dash:
                 print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ Failed to save image(s)", end='')
