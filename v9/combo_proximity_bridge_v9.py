@@ -238,8 +238,10 @@ class ComboProximityBridge:
                     )
                     self.mavlink.wait_heartbeat(timeout=5)
                     print("✓ Pixhawk connected")
+                    print(f"  [MAVLink] System ID: {self.mavlink.target_system}, Component ID: {self.mavlink.target_component}")
                     return True
-                except:
+                except Exception as e:
+                    print(f"  [FAILED] {port}: {e}")
                     self.mavlink = None
 
             raise RuntimeError('No Pixhawk port available')
@@ -468,22 +470,35 @@ class ComboProximityBridge:
         # Send to Pixhawk
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
+        messages_sent_count = 0
+        
         for sector_id, distance_cm in enumerate(fused):
             try:
+                # Ensure distance is within valid range
+                current_distance = int(distance_cm)
+                if current_distance < self.min_distance_cm:
+                    current_distance = self.min_distance_cm
+                elif current_distance > self.max_distance_cm:
+                    current_distance = self.max_distance_cm
+                
+                # Send DISTANCE_SENSOR message (exactly as v8)
                 self.mavlink.mav.distance_sensor_send(
                     time_boot_ms=timestamp,
                     min_distance=self.min_distance_cm,
                     max_distance=self.max_distance_cm,
-                    current_distance=int(distance_cm),
+                    current_distance=current_distance,
                     type=0,
                     id=sector_id,
                     orientation=orientations[sector_id],
                     covariance=0
                 )
-            except:
-                pass
+                messages_sent_count += 1
+            except Exception as e:
+                # Silent fail like v8, but log first error for debugging
+                if messages_sent_count == 0 and sector_id == 0:
+                    print(f"[ERROR] Failed to send DISTANCE_SENSOR: {e}")
 
-        self.stats['messages_sent'] += self.num_sectors
+        self.stats['messages_sent'] += messages_sent_count
 
         # Publish status
         try:
@@ -594,12 +609,38 @@ class ComboProximityBridge:
         try:
             last_send = time.time()
             last_status = time.time()
+            last_heartbeat_check = time.time()
 
             while self.running:
+                # Send proximity data at 10Hz (every 0.1 seconds)
                 if time.time() - last_send > 0.1:
+                    # Verify MAVLink connection is still alive
+                    if self.mavlink:
+                        try:
+                            # Keep connection alive by reading pending messages
+                            self.mavlink.recv_match(blocking=False, timeout=0.01)
+                        except:
+                            # Connection might be broken, try to reconnect
+                            print("[WARNING] MAVLink connection lost, attempting reconnect...")
+                            if not self.connect_pixhawk():
+                                print("[ERROR] Failed to reconnect to Pixhawk")
+                                break
+                    
                     self.fuse_and_send()
                     last_send = time.time()
 
+                # Check for heartbeat from Pixhawk every 5 seconds
+                if self.mavlink and time.time() - last_heartbeat_check > 5.0:
+                    try:
+                        # Try to get a heartbeat message
+                        msg = self.mavlink.recv_match(type='HEARTBEAT', blocking=False, timeout=0.1)
+                        if msg:
+                            last_heartbeat_check = time.time()
+                    except:
+                        # Connection might be broken
+                        pass
+
+                # Print status every 1 second
                 if time.time() - last_status > 1.0:
                     self.print_status()
                     last_status = time.time()
