@@ -8,19 +8,21 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #0a0e27;
-            --card: #151b3d;
-            --text: #f0f6ff;
-            --cyan: #00d9ff;
-            --cyan-glow: rgba(0, 217, 255, 0.85);
-            --cyan-light: rgba(0, 217, 255, 0.2);
-            --green: #00ff88;
-            --orange: #ffaa00;
-            --red: #ff3366;
-            --purple: #9d5fff;
-            --pink: #ff5fa3;
-            --muted: rgba(240, 246, 255, 0.8);
-            --shadow: 0 4px 25px rgba(0, 0, 0, 0.4);
+            --bg: #0a0820;
+            --card: #1a1145;
+            --text: #ffffff;
+            --cyan: #00ffff;
+            --cyan-glow: rgba(0, 255, 255, 1);
+            --cyan-light: rgba(0, 255, 255, 0.3);
+            --green: #00ff00;
+            --orange: #ff9500;
+            --red: #ff0055;
+            --purple: #b300ff;
+            --pink: #ff0099;
+            --yellow: #ffff00;
+            --blue: #0099ff;
+            --muted: rgba(255, 255, 255, 0.9);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
         }
         
         /* Layout with sidebar */
@@ -34,11 +36,18 @@
         }
 
         .sidebar {
-            background: linear-gradient(135deg, var(--card) 0%, rgba(157, 95, 255, 0.15) 100%);
-            border: 2px solid rgba(157, 95, 255, 0.4);
-            border-radius: 16px;
-            padding: 16px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 30px rgba(157, 95, 255, 0.3);
+            background: linear-gradient(135deg, 
+                rgba(26, 17, 69, 0.95) 0%, 
+                rgba(179, 0, 255, 0.3) 50%, 
+                rgba(255, 0, 153, 0.2) 100%);
+            border: 3px solid;
+            border-image: linear-gradient(180deg, #b300ff, #ff0099, #ff9500, #b300ff) 1;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 
+                0 10px 40px rgba(179, 0, 255, 0.5),
+                0 0 50px rgba(255, 0, 153, 0.3),
+                inset 0 0 30px rgba(255, 255, 0, 0.1);
             height: fit-content;
             position: sticky;
             top: 16px;
@@ -101,13 +110,38 @@
         /* Main Header */
         .main-header {
             text-align: center;
-            padding: 14px;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, var(--card) 0%, rgba(0, 217, 255, 0.15) 100%);
-            border: 2px solid rgba(0, 217, 255, 0.5);
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 217, 255, 0.4);
-            animation: slideDown 0.6s ease-out;
+            padding: 20px;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, 
+                rgba(0, 255, 255, 0.2) 0%, 
+                rgba(179, 0, 255, 0.3) 33%, 
+                rgba(255, 0, 153, 0.2) 66%,
+                rgba(255, 255, 0, 0.15) 100%);
+            border: 3px solid;
+            border-image: linear-gradient(90deg, #00ffff, #b300ff, #ff0099, #ffff00, #00ffff) 1;
+            border-radius: 20px;
+            box-shadow: 
+                0 10px 40px rgba(179, 0, 255, 0.5),
+                0 0 60px rgba(0, 255, 255, 0.4),
+                inset 0 0 40px rgba(255, 255, 0, 0.1);
+            animation: slideDown 0.6s ease-out, headerGlow 3s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        @keyframes headerGlow {
+            0%, 100% { 
+                box-shadow: 
+                    0 10px 40px rgba(179, 0, 255, 0.5),
+                    0 0 60px rgba(0, 255, 255, 0.4),
+                    inset 0 0 40px rgba(255, 255, 0, 0.1);
+            }
+            50% { 
+                box-shadow: 
+                    0 15px 50px rgba(179, 0, 255, 0.7),
+                    0 0 80px rgba(0, 255, 255, 0.6),
+                    inset 0 0 50px rgba(255, 255, 0, 0.2);
+            }
         }
         
         @keyframes slideDown {
@@ -181,20 +215,55 @@
         /* Secondary panels grid - 3 equal columns */
         .secondary-panels {
             grid-template-columns: repeat(3, 1fr) !important;
-            align-items: start !important;
+            align-items: stretch !important;
+            grid-auto-rows: 1fr;
+        }
+        
+        .secondary-panels .dashboard-panel {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
         
         .secondary-panels .panel-content {
-            max-height: 320px;
+            height: 320px !important;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Custom scrollbar for GPS panel */
+        .secondary-panels .panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .secondary-panels .panel-content::-webkit-scrollbar-track {
+            background: rgba(0, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        
+        .secondary-panels .panel-content::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #00ffff, #b300ff);
+            border-radius: 3px;
+        }
+        
+        .secondary-panels .panel-content::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #00ffff, #ff0099);
         }
         
         .dashboard-panel {
-            background: linear-gradient(135deg, var(--card) 0%, rgba(21, 27, 61, 0.95) 100%);
-            border: 2px solid rgba(0, 217, 255, 0.4);
-            border-radius: 16px;
-            padding: 16px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 217, 255, 0.3), inset 0 0 20px rgba(0, 217, 255, 0.05);
+            background: linear-gradient(135deg, 
+                rgba(26, 17, 69, 0.9) 0%, 
+                rgba(51, 0, 102, 0.7) 50%, 
+                rgba(0, 153, 255, 0.3) 100%);
+            border: 3px solid;
+            border-image: linear-gradient(135deg, #00ffff, #b300ff, #ff0099, #00ffff) 1;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 
+                0 10px 40px rgba(179, 0, 255, 0.4),
+                0 0 60px rgba(0, 255, 255, 0.3),
+                inset 0 0 30px rgba(255, 0, 153, 0.1);
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
@@ -220,24 +289,31 @@
         }
         
         .dashboard-panel:hover {
-            border-color: var(--cyan);
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 217, 255, 0.5), inset 0 0 30px rgba(0, 217, 255, 0.1);
-            transform: translateY(-2px);
+            box-shadow: 
+                0 15px 50px rgba(179, 0, 255, 0.6),
+                0 0 80px rgba(0, 255, 255, 0.5),
+                0 0 120px rgba(255, 0, 153, 0.3),
+                inset 0 0 40px rgba(255, 255, 0, 0.1);
+            transform: translateY(-3px) scale(1.02);
         }
         
         .panel-header {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 12px;
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--cyan);
+            margin-bottom: 16px;
+            font-size: 16px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00ffff, #b300ff, #ff0099, #ffff00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
-            text-shadow: 0 0 15px var(--cyan-glow);
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(0, 217, 255, 0.2);
+            letter-spacing: 0.15em;
+            padding-bottom: 12px;
+            border-bottom: 2px solid;
+            border-image: linear-gradient(90deg, #00ffff, #b300ff, #ff0099, #ffff00) 1;
+            filter: drop-shadow(0 0 20px rgba(0, 255, 255, 0.8));
         }
         
         .panel-content {
@@ -400,20 +476,67 @@
             height: 100%;
         }
         
+        /* GPS Telemetry Grid - More compact layout */
+        .gps-telemetry-grid {
+            gap: 8px !important;
+        }
+        
+        .gps-telemetry-grid .status-card {
+            padding: 10px !important;
+            min-height: auto;
+        }
+        
+        .gps-telemetry-grid .status-card-title {
+            font-size: 10px !important;
+            margin-bottom: 4px !important;
+        }
+        
+        .gps-telemetry-grid .status-card-value {
+            font-size: 14px !important;
+        }
+        
         .status-card {
-            padding: 12px;
-            background: linear-gradient(135deg, rgba(0, 217, 255, 0.15) 0%, rgba(157, 95, 255, 0.1) 100%);
-            border: 1px solid rgba(0, 217, 255, 0.3);
-            border-radius: 10px;
+            padding: 14px;
+            background: linear-gradient(135deg, 
+                rgba(0, 255, 255, 0.2) 0%, 
+                rgba(179, 0, 255, 0.2) 50%, 
+                rgba(255, 0, 153, 0.1) 100%);
+            border: 2px solid;
+            border-image: linear-gradient(135deg, #00ffff, #b300ff) 1;
+            border-radius: 12px;
             transition: all 0.3s ease;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            box-shadow: 
+                0 4px 15px rgba(179, 0, 255, 0.3),
+                0 0 20px rgba(0, 255, 255, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .status-card::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #00ffff, #b300ff, #ff0099, #ffff00);
+            border-radius: 12px;
+            opacity: 0;
+            z-index: -1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .status-card:hover::before {
+            opacity: 0.3;
         }
         
         .status-card:hover {
-            background: linear-gradient(135deg, rgba(0, 217, 255, 0.25) 0%, rgba(157, 95, 255, 0.2) 100%);
-            border-color: var(--cyan);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 
+                0 8px 25px rgba(179, 0, 255, 0.5),
+                0 0 30px rgba(0, 255, 255, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
         }
         
         .status-card-title {
@@ -425,18 +548,40 @@
         }
         
         .status-card-value {
-            font-size: 16px;
-            font-weight: 700;
+            font-size: 18px;
+            font-weight: 900;
             color: var(--text);
+            text-shadow: 0 0 10px currentColor;
         }
         
-        .status-card-value.running { color: var(--green); }
-        .status-card-value.stopped { color: var(--red); }
-        .status-card-value.good { color: var(--green); }
-        .status-card-value.warning { color: var(--orange); }
-        .status-card-value.error { color: var(--red); }
-        .status-card-value.connected { color: var(--green); }
-        .status-card-value.disconnected { color: var(--red); }
+        .status-card-value.running { 
+            color: #00ff00; 
+            text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00;
+        }
+        .status-card-value.stopped { 
+            color: #ff0055; 
+            text-shadow: 0 0 15px #ff0055, 0 0 30px #ff0055;
+        }
+        .status-card-value.good { 
+            color: #00ff00; 
+            text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00;
+        }
+        .status-card-value.warning { 
+            color: #ff9500; 
+            text-shadow: 0 0 15px #ff9500, 0 0 30px #ff9500;
+        }
+        .status-card-value.error { 
+            color: #ff0055; 
+            text-shadow: 0 0 15px #ff0055, 0 0 30px #ff0055;
+        }
+        .status-card-value.connected { 
+            color: #00ff00; 
+            text-shadow: 0 0 15px #00ff00, 0 0 30px #00ff00;
+        }
+        .status-card-value.disconnected { 
+            color: #ff0055; 
+            text-shadow: 0 0 15px #ff0055, 0 0 30px #ff0055;
+        }
         
         /* Statistics Panel */
         .stats-grid {
@@ -449,19 +594,29 @@
         }
         
         .stat-card {
-            padding: 12px;
-            background: linear-gradient(135deg, rgba(0, 255, 136, 0.15) 0%, rgba(255, 95, 163, 0.1) 100%);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-            border-radius: 10px;
+            padding: 14px;
+            background: linear-gradient(135deg, 
+                rgba(255, 255, 0, 0.15) 0%, 
+                rgba(0, 255, 0, 0.2) 50%, 
+                rgba(0, 153, 255, 0.15) 100%);
+            border: 2px solid;
+            border-image: linear-gradient(135deg, #ffff00, #00ff00, #0099ff) 1;
+            border-radius: 12px;
             transition: all 0.3s ease;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            box-shadow: 
+                0 4px 15px rgba(0, 255, 0, 0.3),
+                0 0 20px rgba(255, 255, 0, 0.2),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
         }
         
         .stat-card:hover {
-            background: linear-gradient(135deg, rgba(0, 255, 136, 0.25) 0%, rgba(255, 95, 163, 0.2) 100%);
-            border-color: var(--green);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 
+                0 8px 25px rgba(0, 255, 0, 0.5),
+                0 0 30px rgba(255, 255, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
         }
         
         .stat-card-label {
@@ -643,11 +798,34 @@
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%);
+            background: linear-gradient(135deg, #0a0820 0%, #1a0033 50%, #330066 100%);
             color: var(--text);
             padding: 16px;
             min-height: 100vh;
             overflow-x: hidden;
+            position: relative;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(179, 0, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(255, 0, 153, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 60% 60%, rgba(255, 255, 0, 0.1) 0%, transparent 30%);
+            pointer-events: none;
+            z-index: -1;
+            animation: bgPulse 10s ease-in-out infinite;
+        }
+        
+        @keyframes bgPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
         }
         .header {
             width: 100%;
@@ -1158,7 +1336,7 @@
                 <div class="dashboard-panel">
                     <div class="panel-header">📡 GPS & TELEMETRY</div>
                     <div class="panel-content">
-                        <div class="system-status-grid">
+                        <div class="system-status-grid gps-telemetry-grid">
                             <div class="status-card">
                                 <div class="status-card-title">Latitude</div>
                                 <div class="status-card-value" id="gps-lat">--</div>
