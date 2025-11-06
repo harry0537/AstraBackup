@@ -23,3 +23,7 @@ requests>=2.27.0
 # Optional but recommended (especially for Windows)
 psutil>=5.9.0  # For better process management and monitoring
 
+# Object Detection
+ultralytics>=8.0.0  # YOLOv5/YOLOv8 for object detection
+torch>=2.0.0  # PyTorch (required by ultralytics)
+

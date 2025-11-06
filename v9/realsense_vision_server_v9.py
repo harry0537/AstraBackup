@@ -36,6 +36,15 @@ except ImportError as e:
     print("Install: pip install pyrealsense2 opencv-python numpy")
     sys.exit(1)
 
+# YOLOv5 for object detection
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    print("[WARNING] ultralytics not available. Object detection will be disabled.")
+    print("Install: pip install ultralytics")
+
 # Configuration
 COMPONENT_ID = 196
 OUTPUT_DIR = "/tmp/vision_v9"
@@ -157,12 +166,14 @@ class VisionServer:
             'last_error_time': None
         }
         
-        # Initialize object detection
+        # Initialize object detection (YOLOv5)
         self.obj_detector = None
         self.obj_classes = []
         self.obj_colors = []
-        if OBJ_DETECT_ENABLED:
+        if OBJ_DETECT_ENABLED and YOLO_AVAILABLE:
             self.init_object_detector()
+        elif OBJ_DETECT_ENABLED and not YOLO_AVAILABLE:
+            self.log("⚠ YOLOv5 not available - install ultralytics: pip install ultralytics")
         
         # Frame tracking
         self.frame_number = 0
@@ -191,169 +202,74 @@ class VisionServer:
             pass
     
     def init_object_detector(self):
-        """Initialize object detection using OpenCV DNN with MobileNet-SSD."""
+        """Initialize object detection using YOLOv5 (ultralytics)."""
         try:
-            # COCO class names (MobileNet-SSD uses COCO dataset)
-            class_file = os.path.join(OUTPUT_DIR, "coco_classes.txt")
-            if not os.path.exists(class_file):
-                # Create default COCO classes file
-                coco_classes = [
-                    'background', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
-                    'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
-                    'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
-                    'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite',
-                    'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
-                    'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
-                    'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant',
-                    'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
-                    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
-                    'teddy bear', 'hair drier', 'toothbrush'
-                ]
-                with open(class_file, 'w') as f:
-                    f.write('\n'.join(coco_classes))
+            self.log("Initializing YOLOv5 object detection...")
             
-            with open(class_file, 'r') as f:
-                self.obj_classes = [line.strip() for line in f.readlines()]
+            # YOLOv5 model (ultralytics will auto-download if not present)
+            # Using YOLOv5n (nano) for speed, can use yolov5s, yolov5m, yolov5l, yolov5x for better accuracy
+            model_name = "yolov5n.pt"  # nano = fastest, smallest
             
-            # Generate colors for each class
-            np.random.seed(42)
-            self.obj_colors = np.random.uniform(0, 255, size=(len(self.obj_classes), 3))
-            
-            # Model directory
-            model_dir = os.path.join(OUTPUT_DIR, "models")
-            os.makedirs(model_dir, exist_ok=True)
-            
-            prototxt = os.path.join(model_dir, "MobileNetSSD_deploy.prototxt")
-            model = os.path.join(model_dir, "MobileNetSSD_deploy.caffemodel")
-            
-            # Download model files if not present
-            if not os.path.exists(prototxt) or not os.path.exists(model):
-                self.log("Downloading object detection model files...")
-                try:
-                    import urllib.request
-                    
-                    # Try multiple sources for model files
-                    prototxt_urls = [
-                        "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt",
-                        "https://github.com/opencv/opencv_extra/raw/master/testdata/dnn/MobileNetSSD_deploy.prototxt",
-                        "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/MobileNetSSD_deploy.prototxt"
-                    ]
-                    
-                    model_urls = [
-                        "https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel",
-                        "https://github.com/opencv/opencv_extra/raw/master/testdata/dnn/MobileNetSSD_deploy.caffemodel",
-                        "https://drive.google.com/uc?export=download&id=0B3gersZ2cHIxRm5PMWR5ekN4SEU"
-                    ]
-                    
-                    # Download prototxt
-                    if not os.path.exists(prototxt):
-                        self.log("  Downloading prototxt...")
-                        downloaded = False
-                        for url in prototxt_urls:
-                            try:
-                                urllib.request.urlretrieve(url, prototxt)
-                                if os.path.exists(prototxt) and os.path.getsize(prototxt) > 1000:
-                                    self.log(f"  ✓ Prototxt downloaded from: {url[:50]}...")
-                                    downloaded = True
-                                    break
-                            except Exception as e:
-                                continue
-                        if not downloaded:
-                            raise Exception("Failed to download prototxt from all sources")
-                    
-                    # Download model
-                    if not os.path.exists(model):
-                        self.log("  Downloading model weights (this may take 1-2 minutes, ~23MB)...")
-                        self.log("  ⚠ Trying alternative sources...")
-                        downloaded = False
-                        for i, url in enumerate(model_urls):
-                            try:
-                                self.log(f"  Attempt {i+1}/{len(model_urls)}: {url[:60]}...")
-                                urllib.request.urlretrieve(url, model)
-                                if os.path.exists(model) and os.path.getsize(model) > 1000000:  # At least 1MB
-                                    self.log(f"  ✓ Model weights downloaded ({os.path.getsize(model)/1024/1024:.1f}MB)")
-                                    downloaded = True
-                                    break
-                            except Exception as e:
-                                self.log(f"  ✗ Attempt {i+1} failed: {str(e)[:50]}")
-                                continue
-                        if not downloaded:
-                            raise Exception("Failed to download model from all sources")
-                    
-                    self.log("  ✓ Model files downloaded successfully")
-                except Exception as e:
-                    self.log(f"  ✗ Failed to download model files: {e}")
-                    self.log(f"  ⚠ Error details: {type(e).__name__}")
-                    self.log("  ⚠ Object detection will use fallback mode")
-                    self.log("  💡 To download manually, run: ./download_obj_detection_model.sh")
-                    self.log(f"  💡 Or place model files in: {model_dir}")
-                    self.obj_detector = None
-                    return
-            
-            # Verify files exist
-            if not os.path.exists(prototxt):
-                self.log(f"✗ Prototxt file not found: {prototxt}")
-                self.obj_detector = None
-                return
-            if not os.path.exists(model):
-                self.log(f"✗ Model file not found: {model}")
-                self.obj_detector = None
-                return
-            
-            # Check file sizes
-            prototxt_size = os.path.getsize(prototxt)
-            model_size = os.path.getsize(model)
-            self.log(f"  Model files: prototxt={prototxt_size} bytes, weights={model_size/1024/1024:.1f}MB")
-            
-            if model_size < 1000000:  # Less than 1MB is suspicious
-                self.log(f"  ⚠ Model file seems too small ({model_size} bytes), may be corrupted")
-            
-            # Try to load the model
             try:
-                self.log("Loading object detection model...")
-                net = cv2.dnn.readNetFromCaffe(prototxt, model)
-                if net is not None:
-                    # Set backend and target (optional, for better performance)
-                    try:
-                        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-                        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-                    except:
-                        pass
-                    self.obj_detector = net
-                    self.log(f"✓ Object detection initialized successfully (MobileNet-SSD)")
-                    self.log(f"  Ready to detect objects with confidence threshold: {OBJ_DETECT_CONFIDENCE_THRESHOLD}")
-                    return
+                # Load YOLOv5 model (auto-downloads on first use)
+                self.log(f"  Loading YOLOv5 model: {model_name}")
+                self.log("  ⚠ First run will download model (~6MB, one-time)")
+                self.obj_detector = YOLO(model_name)
+                
+                # Get class names from model
+                if hasattr(self.obj_detector, 'names'):
+                    self.obj_classes = list(self.obj_detector.names.values())
                 else:
-                    self.log("✗ Model loaded but returned None")
+                    # Fallback COCO class names
+                    self.obj_classes = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+                                       'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
+                                       'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
+                                       'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite',
+                                       'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+                                       'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+                                       'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant',
+                                       'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
+                                       'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
+                                       'teddy bear', 'hair drier', 'toothbrush']
+                
+                # Generate colors for each class
+                np.random.seed(42)
+                num_classes = len(self.obj_classes)
+                self.obj_colors = np.random.uniform(0, 255, size=(num_classes, 3))
+                
+                self.log(f"✓ YOLOv5 object detection initialized successfully")
+                self.log(f"  Model: {model_name}")
+                self.log(f"  Classes: {num_classes} COCO classes")
+                self.log(f"  Confidence threshold: {OBJ_DETECT_CONFIDENCE_THRESHOLD}")
+                return
+                
             except Exception as e:
-                self.log(f"✗ Failed to load model: {e}")
+                self.log(f"✗ Failed to load YOLOv5 model: {e}")
                 self.log(f"  Error type: {type(e).__name__}")
                 import traceback
                 self.log(f"  Traceback: {traceback.format_exc()}")
+                self.obj_detector = None
             
         except Exception as e:
             self.log(f"⚠ Object detection init failed: {e}")
             self.obj_detector = None
     
     def detect_objects(self, color_image):
-        """Detect objects in RGB frame and return annotated image."""
+        """Detect objects in RGB frame using YOLOv5 and return annotated image."""
         annotated = color_image.copy()
         
         if self.obj_detector is None:
             # Fallback: draw a message indicating model status
             h, w = color_image.shape[:2]
             
-            # Check if model files exist to determine message
-            model_dir = os.path.join(OUTPUT_DIR, "models")
-            prototxt = os.path.join(model_dir, "MobileNetSSD_deploy.prototxt")
-            model = os.path.join(model_dir, "MobileNetSSD_deploy.caffemodel")
-            
-            if os.path.exists(prototxt) and os.path.exists(model):
-                text = "Object Detection: Model Failed to Load"
+            if not YOLO_AVAILABLE:
+                text = "Object Detection: Install ultralytics"
                 color = (0, 0, 255)  # Red
+                inst_text = "Run: pip install ultralytics"
             else:
-                text = "Object Detection: Downloading Model..."
+                text = "Object Detection: Model Loading..."
                 color = (0, 255, 255)  # Cyan
+                inst_text = "First run downloads YOLOv5 model (~6MB)"
             
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.6
@@ -367,7 +283,6 @@ class VisionServer:
             cv2.putText(annotated, text, (15, 15 + text_height), font, font_scale, color, thickness)
             
             # Add instruction text
-            inst_text = "Check logs for details"
             inst_size, _ = cv2.getTextSize(inst_text, font, 0.4, 1)
             cv2.putText(annotated, inst_text, (15, 15 + text_height + baseline + 20), 
                        font, 0.4, (128, 128, 128), 1)
@@ -375,53 +290,60 @@ class VisionServer:
             return annotated
         
         try:
-            h, w = color_image.shape[:2]
-            # MobileNet-SSD expects 300x300 input
-            blob = cv2.dnn.blobFromImage(cv2.resize(color_image, (300, 300)), 0.007843, (300, 300), 127.5)
-            self.obj_detector.setInput(blob)
-            detections = self.obj_detector.forward()
+            # Run YOLOv5 inference
+            results = self.obj_detector(color_image, conf=OBJ_DETECT_CONFIDENCE_THRESHOLD, verbose=False)
             
             detection_count = 0
             
-            # Process detections
-            for i in range(detections.shape[2]):
-                confidence = detections[0, 0, i, 2]
-                
-                if confidence > OBJ_DETECT_CONFIDENCE_THRESHOLD:
-                    class_id = int(detections[0, 0, i, 1])
-                    if class_id >= len(self.obj_classes):
-                        continue
-                    
-                    # Get bounding box
-                    box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                    (startX, startY, endX, endY) = box.astype("int")
-                    
-                    # Ensure coordinates are within image bounds
-                    startX = max(0, min(startX, w))
-                    startY = max(0, min(startY, h))
-                    endX = max(0, min(endX, w))
-                    endY = max(0, min(endY, h))
-                    
-                    # Skip if box is too small or invalid
-                    if endX - startX < 10 or endY - startY < 10:
-                        continue
-                    
-                    # Draw bounding box and label
-                    label = f"{self.obj_classes[class_id]}: {confidence:.2f}"
-                    color = self.obj_colors[class_id].astype(int).tolist()
-                    
-                    # Draw thicker box
-                    cv2.rectangle(annotated, (startX, startY), (endX, endY), color, 2)
-                    
-                    # Draw label background
-                    label_size, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                    label_y = max(startY, label_size[1] + 10)
-                    cv2.rectangle(annotated, (startX, label_y - label_size[1] - 10),
-                                     (startX + label_size[0], label_y + 5), color, -1)
-                    cv2.putText(annotated, label, (startX, label_y),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                    
-                    detection_count += 1
+            # Process YOLOv5 results
+            for result in results:
+                boxes = result.boxes
+                if boxes is not None:
+                    for box in boxes:
+                        # Get box coordinates
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        confidence = float(box.conf[0].cpu().numpy())
+                        class_id = int(box.cls[0].cpu().numpy())
+                        
+                        # Convert to integers
+                        startX = int(x1)
+                        startY = int(y1)
+                        endX = int(x2)
+                        endY = int(y2)
+                        
+                        # Ensure coordinates are within image bounds
+                        h, w = annotated.shape[:2]
+                        startX = max(0, min(startX, w))
+                        startY = max(0, min(startY, h))
+                        endX = max(0, min(endX, w))
+                        endY = max(0, min(endY, h))
+                        
+                        # Skip if box is too small or invalid
+                        if endX - startX < 10 or endY - startY < 10:
+                            continue
+                        
+                        # Get class name
+                        if class_id < len(self.obj_classes):
+                            class_name = self.obj_classes[class_id]
+                        else:
+                            class_name = f"class_{class_id}"
+                        
+                        # Draw bounding box and label
+                        label = f"{class_name}: {confidence:.2f}"
+                        color = self.obj_colors[class_id % len(self.obj_colors)].astype(int).tolist()
+                        
+                        # Draw thicker box (3px for better visibility)
+                        cv2.rectangle(annotated, (startX, startY), (endX, endY), color, 3)
+                        
+                        # Draw label background
+                        label_size, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                        label_y = max(startY, label_size[1] + 10)
+                        cv2.rectangle(annotated, (startX, label_y - label_size[1] - 10),
+                                     (startX + label_size[0] + 5, label_y + 5), color, -1)
+                        cv2.putText(annotated, label, (startX + 2, label_y),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                        
+                        detection_count += 1
             
             # Log detection count periodically (avoid spam)
             if hasattr(self, '_last_detection_log'):
@@ -452,9 +374,11 @@ class VisionServer:
             
         except Exception as e:
             self.log(f"✗ Object detection error: {e}")
+            import traceback
+            self.log(f"  Traceback: {traceback.format_exc()}")
             # Draw error message on image
             h, w = color_image.shape[:2]
-            text = f"Detection Error: {str(e)[:30]}"
+            text = f"Detection Error: {str(e)[:40]}"
             cv2.putText(annotated, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             return annotated
     
