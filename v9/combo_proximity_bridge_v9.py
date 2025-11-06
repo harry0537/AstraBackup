@@ -238,10 +238,8 @@ class ComboProximityBridge:
                     )
                     self.mavlink.wait_heartbeat(timeout=5)
                     print("✓ Pixhawk connected")
-                    print(f"  [MAVLink] System ID: {self.mavlink.target_system}, Component ID: {self.mavlink.target_component}")
                     return True
-                except Exception as e:
-                    print(f"  [FAILED] {port}: {e}")
+                except:
                     self.mavlink = None
 
             raise RuntimeError('No Pixhawk port available')
@@ -467,19 +465,11 @@ class ComboProximityBridge:
                 elif rsc[i] < self.max_distance_cm:
                     fused[i] = rsc[i]
 
-        # Send to Pixhawk (EXACTLY as v8)
+        # Send to Pixhawk
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
-        
-        # Debug: Print first few sends to verify format
-        if not hasattr(self, '_debug_printed'):
-            self._debug_printed = False
-        
-        successful_sends = 0
-        
         for sector_id, distance_cm in enumerate(fused):
             try:
-                # Send exactly as v8 does - no extra validation
                 self.mavlink.mav.distance_sensor_send(
                     time_boot_ms=timestamp,
                     min_distance=self.min_distance_cm,
@@ -490,28 +480,10 @@ class ComboProximityBridge:
                     orientation=orientations[sector_id],
                     covariance=0
                 )
-                successful_sends += 1
-                
-                # Debug output for first batch only
-                if not self._debug_printed and sector_id < 3:
-                    print(f"\n[DEBUG] Sent sector {sector_id}: {int(distance_cm)}cm, orientation={orientations[sector_id]}, type=0, id={sector_id}")
-                    if sector_id == 2:
-                        self._debug_printed = True
-                        print(f"[DEBUG] First 3 sectors sent successfully. All 8 sectors sending at 10Hz.\n")
-                        
-            except Exception as e:
-                # Log first error for debugging
-                if successful_sends == 0 and sector_id == 0:
-                    print(f"\n[ERROR] Failed to send DISTANCE_SENSOR sector 0: {e}")
-                    print(f"[ERROR] MAVLink connection may be broken. Check Pixhawk connection.")
+            except:
+                pass
 
-        if successful_sends > 0:
-            self.stats['messages_sent'] += successful_sends
-        else:
-            # All sends failed - connection might be broken
-            if not hasattr(self, '_last_warning_time') or time.time() - self._last_warning_time > 10:
-                print(f"[WARNING] All {self.num_sectors} DISTANCE_SENSOR messages failed to send!")
-                self._last_warning_time = time.time()
+        self.stats['messages_sent'] += self.num_sectors
 
         # Publish status
         try:
@@ -630,38 +602,12 @@ class ComboProximityBridge:
         try:
             last_send = time.time()
             last_status = time.time()
-            last_heartbeat_check = time.time()
 
             while self.running:
-                # Send proximity data at 10Hz (every 0.1 seconds)
                 if time.time() - last_send > 0.1:
-                    # Verify MAVLink connection is still alive
-                    if self.mavlink:
-                        try:
-                            # Keep connection alive by reading pending messages
-                            self.mavlink.recv_match(blocking=False, timeout=0.01)
-                        except:
-                            # Connection might be broken, try to reconnect
-                            print("[WARNING] MAVLink connection lost, attempting reconnect...")
-                            if not self.connect_pixhawk():
-                                print("[ERROR] Failed to reconnect to Pixhawk")
-                                break
-                    
                     self.fuse_and_send()
                     last_send = time.time()
 
-                # Check for heartbeat from Pixhawk every 5 seconds
-                if self.mavlink and time.time() - last_heartbeat_check > 5.0:
-                    try:
-                        # Try to get a heartbeat message
-                        msg = self.mavlink.recv_match(type='HEARTBEAT', blocking=False, timeout=0.1)
-                        if msg:
-                            last_heartbeat_check = time.time()
-                    except:
-                        # Connection might be broken
-                        pass
-
-                # Print status every 1 second
                 if time.time() - last_status > 1.0:
                     self.print_status()
                     last_status = time.time()
