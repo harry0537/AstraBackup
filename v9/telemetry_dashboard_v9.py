@@ -65,6 +65,22 @@ def save_users(users: dict) -> None:
 # Global telemetry data
 telemetry_data = {
     'proximity': [2500] * 8,  # 8 sectors in cm
+    'gps': {
+        'lat': 0.0,
+        'lon': 0.0,
+        'alt': 0.0,
+        'fix': 0
+    },
+    'attitude': {
+        'roll': 0.0,
+        'pitch': 0.0,
+        'yaw': 0.0
+    },
+    'battery': {
+        'voltage': 0.0,
+        'current': 0.0,
+        'remaining': 0
+    },
     'system_status': {
         'proximity_bridge': 'Unknown',
         'data_relay': 'Unknown',
@@ -1209,6 +1225,55 @@ DASHBOARD_HTML = '''
                     </div>
                 </div>
 
+                <!-- GPS & TELEMETRY -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">📡 GPS & TELEMETRY</div>
+                    <div class="panel-content">
+                        <div class="system-status-grid">
+                            <div class="status-card">
+                                <div class="status-card-title">Latitude</div>
+                                <div class="status-card-value" id="gps-lat">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Longitude</div>
+                                <div class="status-card-value" id="gps-lon">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Altitude</div>
+                                <div class="status-card-value" id="gps-alt">-- m</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">GPS Fix</div>
+                                <div class="status-card-value" id="gps-fix">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Roll</div>
+                                <div class="status-card-value" id="attitude-roll">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Pitch</div>
+                                <div class="status-card-value" id="attitude-pitch">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Yaw</div>
+                                <div class="status-card-value" id="attitude-yaw">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Voltage</div>
+                                <div class="status-card-value" id="battery-voltage">-- V</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Current</div>
+                                <div class="status-card-value" id="battery-current">-- A</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Remaining</div>
+                                <div class="status-card-value" id="battery-remaining">--%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- STATISTICS -->
                 <div class="dashboard-panel">
                     <div class="panel-header">📊 STATISTICS</div>
@@ -1260,6 +1325,22 @@ DASHBOARD_HTML = '''
         // Telemetry data structure
         let telemetryData = {
             proximity: [2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500], // 8 sectors in cm
+            gps: {
+                lat: 0.0,
+                lon: 0.0,
+                alt: 0.0,
+                fix: 0
+            },
+            attitude: {
+                roll: 0.0,
+                pitch: 0.0,
+                yaw: 0.0
+            },
+            battery: {
+                voltage: 0.0,
+                current: 0.0,
+                remaining: 0
+            },
             system_status: {
                 proximity_bridge: 'Unknown',
                 data_relay: 'Unknown',
@@ -1493,6 +1574,49 @@ DASHBOARD_HTML = '''
             updateStatusCard('status-rplidar', data.sensor_health.rplidar);
             updateStatusCard('status-realsense', data.sensor_health.realsense);
             updateStatusCard('status-pixhawk', data.sensor_health.pixhawk);
+            
+            // GPS & Telemetry
+            if (data.gps) {
+                const gps = data.gps;
+                document.getElementById('gps-lat').textContent = (gps.lat !== undefined && gps.lat !== 0) ? gps.lat.toFixed(7) + '°' : '--';
+                document.getElementById('gps-lon').textContent = (gps.lon !== undefined && gps.lon !== 0) ? gps.lon.toFixed(7) + '°' : '--';
+                document.getElementById('gps-alt').textContent = (gps.alt !== undefined && gps.alt !== 0) ? gps.alt.toFixed(2) + ' m' : '-- m';
+                const fixTypes = ['No Fix', 'No Fix', '2D Fix', '3D Fix', 'DGPS', 'RTK Float', 'RTK Fixed'];
+                const fixType = (gps.fix !== undefined && gps.fix < fixTypes.length) ? fixTypes[gps.fix] : 'Unknown';
+                document.getElementById('gps-fix').textContent = fixType;
+                // Color code GPS fix status
+                const fixEl = document.getElementById('gps-fix');
+                if (fixEl) {
+                    fixEl.className = 'status-card-value';
+                    if (gps.fix >= 3) fixEl.classList.add('good');
+                    else if (gps.fix >= 2) fixEl.classList.add('warning');
+                    else fixEl.classList.add('error');
+                }
+            }
+            
+            // Attitude
+            if (data.attitude) {
+                const att = data.attitude;
+                document.getElementById('attitude-roll').textContent = (att.roll !== undefined) ? (att.roll * 180 / Math.PI).toFixed(1) + '°' : '--°';
+                document.getElementById('attitude-pitch').textContent = (att.pitch !== undefined) ? (att.pitch * 180 / Math.PI).toFixed(1) + '°' : '--°';
+                document.getElementById('attitude-yaw').textContent = (att.yaw !== undefined) ? (att.yaw * 180 / Math.PI).toFixed(1) + '°' : '--°';
+            }
+            
+            // Battery
+            if (data.battery) {
+                const bat = data.battery;
+                document.getElementById('battery-voltage').textContent = (bat.voltage !== undefined && bat.voltage > 0) ? bat.voltage.toFixed(2) + ' V' : '-- V';
+                document.getElementById('battery-current').textContent = (bat.current !== undefined) ? bat.current.toFixed(2) + ' A' : '-- A';
+                document.getElementById('battery-remaining').textContent = (bat.remaining !== undefined) ? bat.remaining + '%' : '--%';
+                // Color code battery remaining
+                const batEl = document.getElementById('battery-remaining');
+                if (batEl && bat.remaining !== undefined) {
+                    batEl.className = 'status-card-value';
+                    if (bat.remaining >= 50) batEl.classList.add('good');
+                    else if (bat.remaining >= 20) batEl.classList.add('warning');
+                    else batEl.classList.add('error');
+                }
+            }
             
             // Statistics
             const stats = data.statistics;
@@ -2020,9 +2144,29 @@ def serve_rover_image():
         return send_from_directory(os.path.dirname(rover_path), 'rover4.webp')
     return "Image not found", 404
 
-@app.route('/api/telemetry')
+@app.route('/api/telemetry', methods=['GET', 'POST'])
 def get_telemetry():
-    """Return current telemetry data as JSON"""
+    """Return current telemetry data as JSON, or accept POST updates from data relay"""
+    if request.method == 'POST':
+        try:
+            data = request.json
+            # Update GPS data if provided
+            if 'gps' in data:
+                telemetry_data['gps'].update(data['gps'])
+            # Update attitude data if provided
+            if 'attitude' in data:
+                telemetry_data['attitude'].update(data['attitude'])
+            # Update battery data if provided
+            if 'battery' in data:
+                telemetry_data['battery'].update(data['battery'])
+            # Update proximity data if provided
+            if 'proximity' in data and 'sectors_cm' in data['proximity']:
+                telemetry_data['proximity'] = data['proximity']['sectors_cm']
+            telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+            return jsonify({'status': 'ok'})
+        except Exception as e:
+            print(f"[ERROR] Failed to update telemetry: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 400
     return jsonify(telemetry_data)
 
 @app.route('/api/proximity/<int:sector>/<int:distance>')
