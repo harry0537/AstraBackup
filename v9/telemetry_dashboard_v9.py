@@ -550,11 +550,7 @@ DASHBOARD_HTML = '''
         .chip { padding: 4px 10px; border: 1px solid rgba(0,255,255,0.4); color: var(--cyan); background: transparent; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.2s ease; text-transform: uppercase; font-weight: 600; }
         .chip.active { background: var(--cyan); color: var(--bg); box-shadow: 0 0 10px rgba(0,255,255,0.3); }
         
-        /* Gallery */
-        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-        .gallery-item { position: relative; border: 1px solid rgba(0,255,255,0.15); border-radius: 8px; overflow: hidden; background: rgba(0,255,255,0.04); cursor: pointer; }
-        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .gallery-item .gallery-label { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 4px; }
+        /* Gallery - duplicate rules removed, see below */
         
         .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
         .gallery-modal.open { display: flex; }
