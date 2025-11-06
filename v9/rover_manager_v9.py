@@ -376,6 +376,13 @@ class RoverManager:
                 if sectors:
                     print(f"\nProximity: {' '.join(f'{int(x):4d}' for x in sectors)} cm")
                     print(f"Closest: {min_cm}cm | Age: {age:.1f}s | TX: {tx}")
+                    
+                    # Check if all values are max (no detections)
+                    valid_detections = sum(1 for s in sectors if s < 2500)
+                    if valid_detections == 0:
+                        print(f"  ⚠ No obstacle detections (all at max 2500cm)")
+                    else:
+                        print(f"  ✓ {valid_detections}/8 sectors detecting obstacles")
             except:
                 pass
             
