@@ -232,29 +232,61 @@ class VisionServer:
                 try:
                     import urllib.request
                     
+                    # Try multiple sources for model files
+                    prototxt_urls = [
+                        "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt",
+                        "https://github.com/opencv/opencv_extra/raw/master/testdata/dnn/MobileNetSSD_deploy.prototxt",
+                        "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/MobileNetSSD_deploy.prototxt"
+                    ]
+                    
+                    model_urls = [
+                        "https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel",
+                        "https://github.com/opencv/opencv_extra/raw/master/testdata/dnn/MobileNetSSD_deploy.caffemodel",
+                        "https://drive.google.com/uc?export=download&id=0B3gersZ2cHIxRm5PMWR5ekN4SEU"
+                    ]
+                    
                     # Download prototxt
                     if not os.path.exists(prototxt):
                         self.log("  Downloading prototxt...")
-                        urllib.request.urlretrieve(
-                            "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/master/MobileNetSSD_deploy.prototxt",
-                            prototxt
-                        )
-                        self.log("  ✓ Prototxt downloaded")
+                        downloaded = False
+                        for url in prototxt_urls:
+                            try:
+                                urllib.request.urlretrieve(url, prototxt)
+                                if os.path.exists(prototxt) and os.path.getsize(prototxt) > 1000:
+                                    self.log(f"  ✓ Prototxt downloaded from: {url[:50]}...")
+                                    downloaded = True
+                                    break
+                            except Exception as e:
+                                continue
+                        if not downloaded:
+                            raise Exception("Failed to download prototxt from all sources")
                     
                     # Download model
                     if not os.path.exists(model):
                         self.log("  Downloading model weights (this may take 1-2 minutes, ~23MB)...")
-                        urllib.request.urlretrieve(
-                            "https://github.com/chuanqi305/MobileNet-SSD/raw/master/MobileNetSSD_deploy.caffemodel",
-                            model
-                        )
-                        self.log("  ✓ Model weights downloaded")
+                        self.log("  ⚠ Trying alternative sources...")
+                        downloaded = False
+                        for i, url in enumerate(model_urls):
+                            try:
+                                self.log(f"  Attempt {i+1}/{len(model_urls)}: {url[:60]}...")
+                                urllib.request.urlretrieve(url, model)
+                                if os.path.exists(model) and os.path.getsize(model) > 1000000:  # At least 1MB
+                                    self.log(f"  ✓ Model weights downloaded ({os.path.getsize(model)/1024/1024:.1f}MB)")
+                                    downloaded = True
+                                    break
+                            except Exception as e:
+                                self.log(f"  ✗ Attempt {i+1} failed: {str(e)[:50]}")
+                                continue
+                        if not downloaded:
+                            raise Exception("Failed to download model from all sources")
                     
                     self.log("  ✓ Model files downloaded successfully")
                 except Exception as e:
                     self.log(f"  ✗ Failed to download model files: {e}")
                     self.log(f"  ⚠ Error details: {type(e).__name__}")
                     self.log("  ⚠ Object detection will use fallback mode")
+                    self.log("  💡 To download manually, run: ./download_obj_detection_model.sh")
+                    self.log(f"  💡 Or place model files in: {model_dir}")
                     self.obj_detector = None
                     return
             
