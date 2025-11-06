@@ -446,9 +446,17 @@ class ComboProximityBridge:
                 time.sleep(0.1)
 
     def fuse_and_send(self):
-        """Fuse sensor data - UNCHANGED from V8"""
+        """Fuse sensor data and send to Pixhawk via MAVLink"""
         if not self.mavlink:
             return
+
+        # Check if MAVLink connection is still alive
+        try:
+            # Try to receive any pending messages to keep connection alive
+            self.mavlink.recv_match(blocking=False, timeout=0.01)
+        except:
+            # Connection might be broken, will be handled below
+            pass
 
         with self.lock:
             lidar = self.lidar_sectors.copy()
@@ -493,6 +501,22 @@ class ComboProximityBridge:
                 if send_errors == 1 or send_errors % 100 == 0:
                     print(f"[ERROR] Failed to send DISTANCE_SENSOR for sector {sector_id}: {e}")
         
+        # CRITICAL: Flush the MAVLink connection to ensure messages are sent
+        try:
+            # Try to flush the connection (method might not exist on all versions)
+            if hasattr(self.mavlink, 'flush'):
+                self.mavlink.flush()
+            elif hasattr(self.mavlink, 'file') and hasattr(self.mavlink.file, 'flush'):
+                # Fallback: flush the underlying file object
+                self.mavlink.file.flush()
+        except AttributeError:
+            # flush() not available, messages should still be sent
+            pass
+        except Exception as e:
+            # Connection might be broken
+            if send_errors == 0:  # Only log if we didn't already log above
+                print(f"[ERROR] Failed to flush MAVLink connection: {e}")
+        
         if send_errors > 0 and send_errors % 100 == 0:
             print(f"[WARNING] {send_errors} send errors in last batch")
 
@@ -529,11 +553,16 @@ class ComboProximityBridge:
         # Status display
         vision_status = "✓" if self.vision_server_available else "✗"
         error_info = f" E:{self.stats['lidar_errors']}" if self.stats['lidar_errors'] > 0 else ""
+        mavlink_status = "✓" if self.mavlink else "✗"
+        
+        # Calculate messages per second
+        elapsed = max(1, uptime)
+        msg_rate = self.stats['messages_sent'] / elapsed
         
         print(f"\r[{uptime:3d}s] "
-              f"Vision:{vision_status} Forward(RS):{rs_min/100:.1f}m | "
+              f"MAV:{mavlink_status} Vision:{vision_status} Forward(RS):{rs_min/100:.1f}m | "
               f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
-              f"TX:{self.stats['messages_sent']:5d}", end='', flush=True)
+              f"TX:{self.stats['messages_sent']:5d} ({msg_rate:.1f}/s)", end='', flush=True)
 
     def run(self):
         """Main execution"""
