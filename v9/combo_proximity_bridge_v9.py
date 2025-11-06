@@ -446,17 +446,9 @@ class ComboProximityBridge:
                 time.sleep(0.1)
 
     def fuse_and_send(self):
-        """Fuse sensor data and send to Pixhawk via MAVLink"""
+        """Fuse sensor data - RealSense priority for forward"""
         if not self.mavlink:
             return
-
-        # Check if MAVLink connection is still alive
-        try:
-            # Try to receive any pending messages to keep connection alive
-            self.mavlink.recv_match(blocking=False, timeout=0.01)
-        except:
-            # Connection might be broken, will be handled below
-            pass
 
         with self.lock:
             lidar = self.lidar_sectors.copy()
@@ -474,51 +466,22 @@ class ComboProximityBridge:
                     fused[i] = rsc[i]
 
         # Send to Pixhawk
-        # Orientation mapping (MAV_SENSOR_ORIENTATION enum):
-        # 0 = FRONT (0°), 1 = F-RIGHT (45°), 2 = RIGHT (90°), 3 = B-RIGHT (135°)
-        # 4 = BACK (180°), 5 = B-LEFT (225°), 6 = LEFT (270°), 7 = F-LEFT (315°)
-        # This matches MAVLink standard: MAV_SENSOR_ORIENTATION_YAW_* values
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
         timestamp = int(time.time() * 1000) & 0xFFFFFFFF
-        send_errors = 0
         for sector_id, distance_cm in enumerate(fused):
             try:
-                # MAV_DISTANCE_SENSOR_LASER (type=0) for LIDAR-based sensor
-                # Each sector has unique id (0-7) and orientation (0-7)
                 self.mavlink.mav.distance_sensor_send(
                     time_boot_ms=timestamp,
                     min_distance=self.min_distance_cm,
                     max_distance=self.max_distance_cm,
                     current_distance=int(distance_cm),
-                    type=0,  # MAV_DISTANCE_SENSOR_LASER
-                    id=sector_id,  # Unique ID per sector (0-7)
-                    orientation=orientations[sector_id],  # MAV_SENSOR_ORIENTATION enum
+                    type=0,
+                    id=sector_id,
+                    orientation=orientations[sector_id],
                     covariance=0
                 )
-            except Exception as e:
-                send_errors += 1
-                # Log error occasionally (not every message to avoid spam)
-                if send_errors == 1 or send_errors % 100 == 0:
-                    print(f"[ERROR] Failed to send DISTANCE_SENSOR for sector {sector_id}: {e}")
-        
-        # CRITICAL: Flush the MAVLink connection to ensure messages are sent
-        try:
-            # Try to flush the connection (method might not exist on all versions)
-            if hasattr(self.mavlink, 'flush'):
-                self.mavlink.flush()
-            elif hasattr(self.mavlink, 'file') and hasattr(self.mavlink.file, 'flush'):
-                # Fallback: flush the underlying file object
-                self.mavlink.file.flush()
-        except AttributeError:
-            # flush() not available, messages should still be sent
-            pass
-        except Exception as e:
-            # Connection might be broken
-            if send_errors == 0:  # Only log if we didn't already log above
-                print(f"[ERROR] Failed to flush MAVLink connection: {e}")
-        
-        if send_errors > 0 and send_errors % 100 == 0:
-            print(f"[WARNING] {send_errors} send errors in last batch")
+            except:
+                pass
 
         self.stats['messages_sent'] += self.num_sectors
 
