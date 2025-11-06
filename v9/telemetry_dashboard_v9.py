@@ -2230,18 +2230,40 @@ def serve_archive_file(filename):
 def crop_list():
     """Return JSON list of archived images with timestamps"""
     import glob
-    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
-    out = []
-    for fp in files[:300]:
-        ts = os.path.getmtime(fp)
-        out.append({
-            'filename': os.path.basename(fp),
-            'name': os.path.basename(fp),
-            'url': f"/api/crop/archive/{os.path.basename(fp)}",
-            'time': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S'),
-            'mtime': int(ts)
-        })
-    return jsonify({'images': out})
+    try:
+        files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
+        out = []
+        for fp in files[:300]:
+            # Verify file exists and is not empty
+            if not os.path.exists(fp):
+                continue
+            try:
+                file_size = os.path.getsize(fp)
+                if file_size == 0:
+                    continue  # Skip empty files
+                # Verify it's a valid JPEG (starts with FF D8)
+                with open(fp, 'rb') as f:
+                    header = f.read(2)
+                    if header != b'\xff\xd8':
+                        continue  # Skip invalid JPEGs
+            except Exception as e:
+                print(f"[API] Error checking file {fp}: {e}")
+                continue
+            
+            ts = os.path.getmtime(fp)
+            out.append({
+                'filename': os.path.basename(fp),
+                'name': os.path.basename(fp),
+                'url': f"/api/crop/archive/{os.path.basename(fp)}",
+                'time': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S'),
+                'mtime': int(ts),
+                'size': file_size
+            })
+        print(f"[API] Crop list: {len(out)} images found")
+        return jsonify({'images': out, 'count': len(out)})
+    except Exception as e:
+        print(f"[API] Error listing crop images: {e}")
+        return jsonify({'images': [], 'count': 0, 'error': str(e)})
 
 @app.route('/api/crop/status')
 def get_crop_status():
