@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Project Astra NZ - Telemetry Dashboard V8 (Demo)</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0b0e;
+            --bg-elev: #151922;
+            --card: #181c26;
+            --card-border: rgba(255,255,255,0.06);
+            --text: #e6eaf2;
+            --muted: #98a2b3;
+            --accent: #3b82f6; /* blue */
+            --accent-strong: #2563eb;
+            --accent-glow: rgba(59, 130, 246, 0.5);
+            --highlight: #a3e635; /* lime green for "REAL SENSE" style */
+            --ok: #22c55e;
+            --warn: #f59e0b;
+            --error: #ef4444;
+            --chip: rgba(255,255,255,0.06);
+            --chip-border: rgba(255,255,255,0.08);
+            --shadow: 0 8px 24px rgba(0,0,0,0.35);
+            --radius: 14px;
+            --radius-sm: 10px;
+        }
+        /* Sport variant (inspired by red cluster rings) */
+        html[data-theme="sport"] {
+            --accent: #fb7185; /* rose */
+            --accent-strong: #f43f5e;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+            background: 
+                        radial-gradient(1000px 500px at 50% -20%, rgba(59, 130, 246, 0.06), transparent 60%),
+                        radial-gradient(800px 400px at 120% 100%, rgba(99, 102, 241, 0.04), transparent 60%),
+                        repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 24px),
+                        repeating-linear-gradient(90deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 24px),
+                        var(--bg);
+            color: var(--text);
+            padding: 10px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .header {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            flex-shrink: 0;
+        }
+        .header h1 {
+            font-size: 16px;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            margin: 0;
+        }
+        .demo-badge {
+            background: rgba(245,158,11,0.15);
+            border: 1px solid rgba(245,158,11,0.3);
+            color: #f59e0b;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        #timestamp {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            border: 1px solid var(--card-border);
+        }
+        .actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .btn {
+            padding: 4px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
+            color: var(--text);
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .container {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: flex;
+            gap: 8px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .container.status-row {
+            margin: 0 0 6px 0;
+        }
+        .container.status-row .panel {
+            flex: 1;
+            min-width: 0;
+        }
+        /* Indicator ribbon */
+        .ribbon {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .light {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow);
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.06) inset, 0 0 12px rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.08);
+        }
+        .on-ok { background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.8); animation: breathe 2.6s ease-in-out infinite; }
+        .on-warn { background: #f59e0b; box-shadow: 0 0 12px rgba(245,158,11,0.8); animation: pulse 1.4s ease-in-out infinite; }
+        .on-err { background: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.8); animation: pulse 0.9s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { transform: scale(0.95); } 50% { transform: scale(1.15); } }
+        @keyframes breathe { 0%,100% { filter: saturate(0.9); } 50% { filter: saturate(1.2); } }
+        
+        /* Circular sensor indicators inspired by the reference image */
+        .sensor-circles {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 40px;
+            padding: 30px 20px;
+            margin: 0 0 8px 0;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: visible;
+        }
+        .sensor-circle {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+        .sensor-circle.highlight .sensor-label {
+            color: var(--highlight);
+            text-shadow: 0 0 20px var(--highlight), 0 0 40px rgba(163, 230, 53, 0.5);
+            animation: text-glow 2s ease-in-out infinite;
+        }
+        @keyframes text-glow {
+            0%, 100% { text-shadow: 0 0 15px var(--highlight), 0 0 30px rgba(163, 230, 53, 0.4); }
+            50% { text-shadow: 0 0 25px var(--highlight), 0 0 50px rgba(163, 230, 53, 0.6); }
+        }
+        .circle-container {
+            position: relative;
+            width: 140px;
+            height: 140px;
+        }
+        .circle-container.large {
+            width: 180px;
+            height: 180px;
+        }
+        .circle-svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+        .circle-bg {
+            fill: none;
+            stroke: rgba(59, 130, 246, 0.15);
+            stroke-width: 3;
+        }
+        .circle-progress {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 3;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            filter: drop-shadow(0 0 8px var(--accent-glow));
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { filter: drop-shadow(0 0 6px var(--accent-glow)); }
+            50% { filter: drop-shadow(0 0 12px var(--accent-glow)); }
+        }
+        .sensor-label {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--text);
+            text-transform: uppercase;
+        }
+        .sensor-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text);
+            text-align: center;
+        }
+        .sensor-value .unit {
+            font-size: 12px;
+            color: var(--muted);
+            display: block;
+            margin-top: -5px;
+        }
+        .sensor-status {
+            font-size: 10px;
+            color: var(--muted);
+            text-align: center;
+            margin-top: -6px;
+        }
+        
+        /* Curved progress bars on sides */
+        .side-gauge {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 60px;
+            height: 180px;
+        }
+        .side-gauge.left {
+            left: 20px;
+        }
+        .side-gauge.right {
+            right: 20px;
+        }
+        .gauge-label {
+            position: absolute;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .gauge-label.top {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .gauge-label.bottom {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .rover-vision-container {
+            grid-column: 1 / -1;
+            margin-top: 0;
+        }
+        .vision-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 0;
+            align-items: start;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .proximity-panel {
+            grid-column: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .rover-vision-panel {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .proximity-panel .panel,
+        .rover-vision-panel .panel {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            align-items: center;
+        }
+        .proximity-panel .radar-container {
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+            flex-shrink: 0;
+        }
+        .proximity-panel .radar {
+            width: 100%;
+            height: 100%;
+        }
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            padding: 10px;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .panel:before {
+            content: "";
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(120deg, rgba(255,255,255,0.06), transparent 40%, var(--accent) 50%, transparent 60%, rgba(255,255,255,0.06));
+            filter: blur(8px);
+            opacity: 0.35;
+            pointer-events: none;
+        }
+        .panel h2 {
+            font-size: 12px;
+            margin-bottom: 8px;
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.06em;
+        }
+        .radar-container {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            margin: 0 auto;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 60%, transparent 100%);
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+        }
+        .radar-container:after {
+            content: "";
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.0) 260deg, var(--accent) 300deg, transparent 360deg);
+            animation: spin 6s linear infinite;
+            filter: blur(1px);
+            opacity: 0.35;
+            pointer-events: none;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .radar {
+            width: 100%;
+            height: 100%;
+        }
+        .env-container {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            aspect-ratio: 1 / 1;
+            height: auto;
+            margin: 12px auto 0 auto;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+            background: radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,0.03), transparent 70%);
+        }
+        .envmap { width: 100%; height: 100%; }
+        .gallery-grid { 
+            display: none; 
+            margin-top: 8px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        .gallery-grid.active { 
+            display: flex;
+            flex-direction: row;
+            gap: 8px;
+            padding-bottom: 4px;
+        }
+        .gallery-grid::-webkit-scrollbar {
+            height: 6px;
+        }
+        .gallery-grid::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+            border-radius: 3px;
+        }
+        .gallery-grid::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: 3px;
+        }
+        .thumb {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 6px;
+            text-align: center;
+            min-width: 120px;
+            flex-shrink: 0;
+        }
+        .thumb img { width: 100%; height: 80px; object-fit: cover; border-radius: 6px; }
+        .thumb .cap { color: var(--muted); font-size: 10px; margin-top: 4px; white-space: nowrap; }
+        .status-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 11px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-label {
+            color: var(--muted);
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .status-value {
+            text-align: right;
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .status-ok { color: var(--ok); background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.18); }
+        .status-warning { color: var(--warn); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.18); }
+        .status-error { color: var(--error); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.18); }
+        .proximity-values {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+            margin-top: 8px;
+            width: 100%;
+            max-width: 480px;
+        }
+        .proximity-item {
+            text-align: center;
+            padding: 5px 3px;
+            background: var(--chip);
+            border: 1px solid var(--chip-border);
+            border-radius: var(--radius-sm);
+        }
+        .proximity-label {
+            font-size: 9px;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+        }
+        .proximity-value {
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .safe { color: var(--ok); }
+        .warning { color: var(--warn); }
+        .danger { color: var(--error); }
+        .crop-image-container {
+            text-align: center;
+            margin-top: 0;
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1 / 1;
+            margin-left: auto;
+            margin-right: auto;
+            display: grid;
+            place-items: center;
+            flex-shrink: 0;
+        }
+        .crop-image-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .crop-image-container img:hover {
+            box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+            transform: scale(1.015);
+        }
+        .crop-status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: var(--muted);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .rover-vision-container .panel {
+            padding: 10px;
+        }
+        .rover-vision-container h2 {
+            font-size: 12px;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .vision-toolbar {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+        .btn.small { 
+            padding: 4px 8px; 
+            font-size: 11px;
+            transition: all 0.2s ease;
+        }
+        .alert-offline {
+            display: none;
+            padding: 14px 16px;
+            margin-top: 8px;
+            text-align: center;
+            color: #f59e0b;
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.28);
+            border-radius: var(--radius-sm);
+        }
+        @media (max-width: 980px) {
+            .vision-row { 
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .proximity-panel, .rover-vision-panel { grid-column: 1; }
+            .header h1 { font-size: 14px; }
+            .actions { flex-wrap: wrap; gap: 4px; }
+            .sensor-circles {
+                gap: 20px;
+                padding: 20px 10px;
+            }
+            .circle-container {
+                width: 100px;
+                height: 100px;
+            }
+            .circle-container.large {
+                width: 140px;
+                height: 140px;
+            }
+            .sensor-value {
+                font-size: 24px;
+            }
+            .side-gauge {
+                width: 40px;
+                height: 140px;
+            }
+        }
+        @media (max-width: 640px) {
+            .container { grid-template-columns: 1fr; }
+            .ribbon { grid-template-columns: repeat(3, 1fr); }
+            body { padding: 8px; }
+            .sensor-circles {
+                flex-direction: column;
+                gap: 25px;
+                padding: 20px;
+            }
+            .side-gauge {
+                display: none;
+            }
+            .circle-container, .circle-container.large {
+                width: 120px;
+                height: 120px;
+            }
+        }
+        /* Room boundary map */
+        .room-map { width: 100%; height: 140px; margin: 4px 0 0 0; border:1px dashed var(--card-border); border-radius: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PROJECT ASTRA NZ — TELEMETRY DASHBOARD V8 <span class="demo-badge">DEMO MODE</span></h1>
+        <div class="actions">
+            <span class="btn" id="metric-uptime" title="Uptime">Uptime: --</span>
+            <span class="btn" id="metric-fps" title="RealSense FPS">FPS: --</span>
+            <span class="btn" id="metric-msg" title="Messages Sent">Msgs: --</span>
+            <button class="btn" id="theme-toggle" title="Toggle theme">Classic/Sport</button>
+            <p id="timestamp">--:--:--</p>
+        </div>
+    </div>
+
+    <div class="ribbon" id="status-ribbon">
+        <div class="light"><span class="dot" id="light-proximity"></span> Proximity</div>
+        <div class="light"><span class="dot" id="light-relay"></span> Data Relay</div>
+        <div class="light"><span class="dot" id="light-crop"></span> Crop Monitor</div>
+        <div class="light"><span class="dot" id="light-lidar"></span> RPLidar</div>
+        <div class="light"><span class="dot" id="light-realsense"></span> RealSense</div>
+        <div class="light"><span class="dot" id="light-pixhawk"></span> Pixhawk</div>
+    </div>
+
+    <!-- Circular Sensor Display (Inspired Design) -->
+    <div class="sensor-circles">
+        <!-- Left Side Gauge -->
+        <div class="side-gauge left">
+            <svg viewBox="0 0 60 180" style="width: 100%; height: 100%;">
+                <path d="M 50 20 A 130 130 0 0 0 50 160" fill="none" stroke="rgba(59, 130, 246, 0.15)" stroke-width="3"/>
+                <path id="left-gauge-progress" d="M 50 20 A 130 130 0 0 0 50 160" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" 
+                      style="filter: drop-shadow(0 0 8px var(--accent-glow)); stroke-dasharray: 410; stroke-dashoffset: 205;"/>
+            </svg>
+            <div class="gauge-label top">8</div>
+            <div class="gauge-label bottom">0</div>
+        </div>
+
+        <!-- GPS Circle -->
+        <div class="sensor-circle">
+            <div class="sensor-label">GPS</div>
+            <div class="circle-container">
+                <svg class="circle-svg" viewBox="0 0 160 160">
+                    <circle class="circle-bg" cx="80" cy="80" r="70"/>
+                    <circle id="gps-circle" class="circle-progress" cx="80" cy="80" r="70" 
+                            style="stroke-dasharray: 440; stroke-dashoffset: 110;"/>
+                </svg>
+                <div class="sensor-value">
+                    <span id="gps-value">--</span>
+                    <span class="unit">SATS</span>
+                </div>
+            </div>
+            <div class="sensor-status" id="gps-status">Searching...</div>
+        </div>
+
+        <!-- RealSense Circle (Larger, Highlighted) -->
+        <div class="sensor-circle highlight">
+            <div class="sensor-label">REAL SENSE</div>
+            <div class="circle-container large">
+                <svg class="circle-svg" viewBox="0 0 200 200">
+                    <circle class="circle-bg" cx="100" cy="100" r="90"/>
+                    <circle id="realsense-circle" class="circle-progress" cx="100" cy="100" r="90" 
+                            style="stroke-dasharray: 565; stroke-dashoffset: 141;"/>
+                </svg>
+                <div class="sensor-value">
+                    <span id="realsense-value">--</span>
+                    <span class="unit">FPS</span>
+                </div>
+            </div>
+            <div class="sensor-status" id="realsense-status">Initializing...</div>
+        </div>
+
+        <!-- LiDAR Circle -->
+        <div class="sensor-circle">
+            <div class="sensor-label">LIDAR</div>
+            <div class="circle-container">
+                <svg class="circle-svg" viewBox="0 0 160 160">
+                    <circle class="circle-bg" cx="80" cy="80" r="70"/>
+                    <circle id="lidar-circle" class="circle-progress" cx="80" cy="80" r="70" 
+                            style="stroke-dasharray: 440; stroke-dashoffset: 110;"/>
+                </svg>
+                <div class="sensor-value">
+                    <span id="lidar-value">--</span>
+                    <span class="unit">RPM</span>
+                </div>
+            </div>
+            <div class="sensor-status" id="lidar-status">Standby</div>
+        </div>
+
+        <!-- Right Side Gauge -->
+        <div class="side-gauge right">
+            <svg viewBox="0 0 60 180" style="width: 100%; height: 100%;">
+                <path d="M 10 20 A 130 130 0 0 1 10 160" fill="none" stroke="rgba(59, 130, 246, 0.15)" stroke-width="3"/>
+                <path id="right-gauge-progress" d="M 10 20 A 130 130 0 0 1 10 160" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" 
+                      style="filter: drop-shadow(0 0 8px var(--accent-glow)); stroke-dasharray: 410; stroke-dashoffset: 205;"/>
+            </svg>
+            <div class="gauge-label top">1/2</div>
+        </div>
+    </div>
+
+    <div class="container status-row">
+        <div class="panel">
+            <h2>SYSTEM STATUS</h2>
+            <div class="status-grid" id="system-status">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>SENSOR HEALTH</h2>
+            <div class="status-grid" id="sensor-health">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>STATISTICS</h2>
+            <div class="status-grid" id="statistics">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <div class="vision-row">
+        <div class="proximity-panel">
+            <div class="panel">
+                <h2>PROXIMITY RADAR</h2>
+                <div class="radar-container">
+                    <canvas id="radar" class="radar"></canvas>
+                </div>
+                <div class="proximity-values" id="proximity-values">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <div class="rover-vision-panel">
+            <div class="panel">
+                <h2>REAL-TIME ROVER VISION (DEMO)</h2>
+                <div class="vision-toolbar">
+                    <button class="btn small" id="btn-live">Live</button>
+                    <button class="btn small" id="btn-snap">Snapshots</button>
+                    <button class="btn small" id="btn-gallery">Gallery</button>
+                </div>
+                <div class="crop-image-container">
+                    <div id="vision-placeholder" style="color: var(--muted); font-size: 12px; padding: 20px; text-align: center;">
+                        Live camera feed (demo mode)
+                    </div>
+                </div>
+                <div id="inline-gallery" class="gallery-grid">
+                    <!-- Gallery items will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" style="flex-shrink: 0;">
+        <div class="panel" style="width: 100%;">
+            <h2>ENVIRONMENT BOUNDARY (10m)</h2>
+            <canvas id="room-map" class="room-map"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('radar');
+        const ctx = canvas.getContext('2d');
+        const roomMap = document.getElementById('room-map');
+        const roomCtx = roomMap.getContext('2d');
+        
+        // Make radar fit the container size
+        function resizeRadar() {
+            const container = canvas.parentElement;
+            const size = container.clientWidth;
+            canvas.width = size;
+            canvas.height = size;
+        }
+        function resizeRoom() {
+            const w = roomMap.parentElement.clientWidth - 36;
+            roomMap.width = w;
+            roomMap.height = 140;
+        }
+        
+        // Initial resize
+        resizeRadar();
+        resizeRoom();
+        
+        // Resize on window resize
+        window.addEventListener('resize', () => { resizeRadar(); resizeRoom(); });
+        
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const maxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
+
+        // Sector angles (45° each, starting from front)
+        const sectorAngles = [
+            -22.5, 22.5, 67.5, 112.5, 157.5, -157.5, -112.5, -67.5
+        ];
+        const sectorNames = [
+            'FRONT', 'F-RIGHT', 'RIGHT', 'B-RIGHT',
+            'BACK', 'B-LEFT', 'LEFT', 'F-LEFT'
+        ];
+
+        function drawRadar(distances) {
+            // Update center and radius for current canvas size
+            const currentCenterX = canvas.width / 2;
+            const currentCenterY = canvas.height / 2;
+            const currentMaxRadius = Math.min(canvas.width, canvas.height) / 2 - 20;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid circles
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.18)';
+            ctx.lineWidth = 1;
+            for (let r = 0.25; r <= 1; r += 0.25) {
+                ctx.beginPath();
+                ctx.arc(currentCenterX, currentCenterY, currentMaxRadius * r, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Distance labels
+                ctx.fillStyle = 'rgba(230, 234, 242, 0.5)';
+                ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+                ctx.fillText(`${Math.round(r * 25)}m`, currentCenterX + 5, currentCenterY - currentMaxRadius * r + 10);
+            }
+
+            // Draw sector lines / ticks
+            for (let angle of sectorAngles) {
+                const rad = (angle - 90) * Math.PI / 180;
+                ctx.beginPath();
+                ctx.moveTo(currentCenterX, currentCenterY);
+                ctx.lineTo(
+                    currentCenterX + currentMaxRadius * Math.cos(rad),
+                    currentCenterY + currentMaxRadius * Math.sin(rad)
+                );
+                ctx.stroke();
+            }
+            // Minor ticks every 15°
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.12)';
+            for (let a = -180; a < 180; a += 15) {
+                const rad = (a - 90) * Math.PI / 180;
+                const inner = currentMaxRadius - 8;
+                ctx.beginPath();
+                ctx.moveTo(currentCenterX + inner * Math.cos(rad), currentCenterY + inner * Math.sin(rad));
+                ctx.lineTo(currentCenterX + currentMaxRadius * Math.cos(rad), currentCenterY + currentMaxRadius * Math.sin(rad));
+                ctx.stroke();
+            }
+
+            // Draw obstacles
+            for (let i = 0; i < 8; i++) {
+                const distance = distances[i] / 100; // Convert to meters
+                const normalizedDist = Math.min(distance / 25, 1); // Normalize to 25m max
+                const pixelDist = normalizedDist * currentMaxRadius;
+
+                // Calculate sector center angle
+                const startAngle = (sectorAngles[i] - 90) * Math.PI / 180;
+                const endAngle = (sectorAngles[(i + 1) % 8] - 90) * Math.PI / 180;
+                const centerAngle = (startAngle + endAngle) / 2;
+
+                // Color based on distance
+                let color;
+                if (distance < 1) {
+                    color = 'rgba(239, 68, 68, 0.65)'; // softer red
+                } else if (distance < 3) {
+                    color = 'rgba(245, 158, 11, 0.50)'; // amber
+                } else {
+                    color = 'rgba(52, 211, 153, 0.30)'; // mint
+                }
+
+                // Draw sector arc
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(currentCenterX, currentCenterY, pixelDist, startAngle, endAngle);
+                ctx.lineTo(currentCenterX, currentCenterY);
+                ctx.fill();
+
+                // Draw distance text
+                if (distance < 25) {
+                    const textX = currentCenterX + (pixelDist + 15) * Math.cos(centerAngle);
+                    const textY = currentCenterY + (pixelDist + 15) * Math.sin(centerAngle);
+                    ctx.fillStyle = 'rgba(230, 234, 242, 0.85)';
+                    ctx.font = '600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+                    ctx.fillText(`${distance.toFixed(1)}m`, textX - 15, textY + 3);
+                }
+            }
+
+            // Draw center point
+            ctx.fillStyle = 'rgba(110, 231, 183, 0.9)';
+            ctx.beginPath();
+            ctx.arc(currentCenterX, currentCenterY, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Update proximity values panel
+            const valuesHtml = sectorNames.map((name, i) => {
+                const dist = distances[i] / 100;
+                const className = dist < 1 ? 'danger' : dist < 3 ? 'warning' : 'safe';
+                return `
+                    <div class="proximity-item">
+                        <div class="proximity-label">${name}</div>
+                        <div class="proximity-value ${className}">${dist.toFixed(1)}m</div>
+                    </div>
+                `;
+            }).join('');
+            document.getElementById('proximity-values').innerHTML = valuesHtml;
+        }
+
+        function drawRoomBoundary(distances) {
+            const w = roomMap.width, h = roomMap.height;
+            roomCtx.clearRect(0,0,w,h);
+            
+            // Background grid
+            roomCtx.strokeStyle = 'rgba(255,255,255,0.03)';
+            roomCtx.lineWidth = 1;
+            for (let x=0; x<w; x+=30){ roomCtx.beginPath(); roomCtx.moveTo(x,0); roomCtx.lineTo(x,h); roomCtx.stroke(); }
+            for (let y=0; y<h; y+=30){ roomCtx.beginPath(); roomCtx.moveTo(0,y); roomCtx.lineTo(w,y); roomCtx.stroke(); }
+            
+            // Draw room walls/boundaries from obstacle data
+            const cx = w/2, cy = h/2; const maxRange = 10.0; // meters
+            const points = [];
+            
+            // Collect all sector points to form boundaries
+            for (let i=0;i<8;i++){
+                const dist = Math.min(distances[i]/100, maxRange);
+                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
+                const a = (angleDeg - 90) * Math.PI/180;
+                const r = (dist / maxRange) * (Math.min(w,h)/2 - 20);
+                const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
+                points.push({x, y, dist, angle: angleDeg});
+            }
+            
+            // Draw room boundary as connected walls
+            if (points.length > 0) {
+                roomCtx.strokeStyle = 'rgba(110, 231, 183, 0.4)';
+                roomCtx.lineWidth = 2;
+                roomCtx.beginPath();
+                roomCtx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    roomCtx.lineTo(points[i].x, points[i].y);
+                }
+                roomCtx.closePath();
+                roomCtx.stroke();
+                
+                // Fill room with subtle gradient
+                roomCtx.fillStyle = 'rgba(110, 231, 183, 0.05)';
+                roomCtx.fill();
+            }
+            
+            // Draw obstacles as walls/objects
+            for (let i=0;i<8;i++){
+                const dist = Math.min(distances[i]/100, maxRange);
+                const angleDeg = (sectorAngles[i] + sectorAngles[(i + 1) % 8]) / 2;
+                const a = (angleDeg - 90) * Math.PI/180;
+                const r = (dist / maxRange) * (Math.min(w,h)/2 - 20);
+                const x = cx + r*Math.cos(a), y = cy + r*Math.sin(a);
+                
+                if (dist < maxRange - 1) { // Only draw if within range
+                    const size = dist < 1 ? 8 : dist < 3 ? 6 : 4;
+                    roomCtx.fillStyle = dist < 1 ? 'rgba(239, 68, 68, 0.7)' : dist < 3 ? 'rgba(245, 158, 11, 0.6)' : 'rgba(52, 211, 153, 0.5)';
+                    roomCtx.beginPath(); 
+                    roomCtx.arc(x,y,size,0,Math.PI*2); 
+                    roomCtx.fill();
+                    
+                    // Add glow effect for close objects
+                    if (dist < 2) {
+                        roomCtx.shadowColor = dist < 1 ? '#ef4444' : '#f59e0b';
+                        roomCtx.shadowBlur = 8;
+                        roomCtx.fillStyle = dist < 1 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.2)';
+                        roomCtx.beginPath(); 
+                        roomCtx.arc(x,y,size+2,0,Math.PI*2); 
+                        roomCtx.fill();
+                        roomCtx.shadowBlur = 0;
+                    }
+                }
+            }
+            
+            // Draw center rover with direction indicator
+            roomCtx.fillStyle = '#6ee7b7';
+            roomCtx.beginPath(); 
+            roomCtx.arc(cx,cy,4,0,Math.PI*2); 
+            roomCtx.fill();
+            roomCtx.strokeStyle = '#6ee7b7';
+            roomCtx.lineWidth = 2;
+            roomCtx.beginPath();
+            roomCtx.moveTo(cx, cy-8);
+            roomCtx.lineTo(cx, cy);
+            roomCtx.stroke();
+            
+            // Label
+            roomCtx.fillStyle = 'rgba(110, 231, 183, 0.8)';
+            roomCtx.font = '11px system-ui, sans-serif';
+            roomCtx.fillText('±10m Environment', 12, 18);
+        }
+
+        // Indicator helpers
+        function setLight(id, state) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.remove('on-ok','on-warn','on-err');
+            if (state === 'ok') el.classList.add('on-ok');
+            else if (state === 'warn') el.classList.add('on-warn');
+            else if (state === 'err') el.classList.add('on-err');
+        }
+
+        function updateStatus(elementId, data) {
+            const element = document.getElementById(elementId);
+            let html = '';
+
+            for (const [key, value] of Object.entries(data)) {
+                const displayKey = key.replace(/_/g, ' ').toUpperCase();
+                let displayValue = value;
+                let className = 'status-value';
+
+                // Apply color coding
+                if (value === 'RUNNING' || value === 'Connected' || value === 'Good') {
+                    className += ' status-ok';
+                } else if (value === 'Warning' || value === 'Degraded') {
+                    className += ' status-warning';
+                } else if (value === 'ERROR' || value === 'Disconnected' || value === 'Failed') {
+                    className += ' status-error';
+                }
+
+                html += `
+                    <div class="status-item">
+                        <div class="status-label">${displayKey}:</div>
+                        <div class="${className}">${displayValue}</div>
+                    </div>
+                `;
+            }
+
+            element.innerHTML = html;
+        }
+
+        // Simulated data generation
+        let startTime = Date.now();
+        let messageCount = 0;
+
+        // Function to update circular progress indicators
+        function updateCircularProgress(circleId, percentage) {
+            const circle = document.getElementById(circleId);
+            if (!circle) return;
+            
+            const radius = parseFloat(circle.getAttribute('r'));
+            const circumference = 2 * Math.PI * radius;
+            const offset = circumference - (percentage / 100) * circumference;
+            
+            circle.style.strokeDasharray = circumference;
+            circle.style.strokeDashoffset = offset;
+        }
+
+        // Function to update side gauge progress
+        function updateSideGauge(gaugeId, percentage) {
+            const gauge = document.getElementById(gaugeId);
+            if (!gauge) return;
+            
+            const pathLength = 410; // Approximate arc length
+            const offset = pathLength - (percentage / 100) * pathLength;
+            gauge.style.strokeDashoffset = offset;
+        }
+
+        // Function to update sensor display
+        function updateSensorCircles(data) {
+            // Update GPS
+            const gpsValue = Math.floor(Math.random() * 12) + 4; // 4-16 satellites
+            document.getElementById('gps-value').textContent = gpsValue;
+            document.getElementById('gps-status').textContent = gpsValue > 6 ? 'Good Lock' : 'Weak Signal';
+            updateCircularProgress('gps-circle', (gpsValue / 16) * 100);
+            
+            // Update RealSense
+            const realsenseFps = data?.statistics?.realsense_fps || Math.floor(28 + Math.random() * 2);
+            document.getElementById('realsense-value').textContent = realsenseFps;
+            document.getElementById('realsense-status').textContent = data?.sensor_health?.realsense === 'Connected' ? 'Active' : 'Disconnected';
+            updateCircularProgress('realsense-circle', (realsenseFps / 30) * 100);
+            
+            // Update LiDAR
+            const lidarRpm = Math.floor(500 + Math.random() * 100); // 500-600 RPM
+            document.getElementById('lidar-value').textContent = lidarRpm;
+            document.getElementById('lidar-status').textContent = data?.sensor_health?.rplidar === 'Good' ? 'Scanning' : 'Standby';
+            updateCircularProgress('lidar-circle', (lidarRpm / 600) * 100);
+            
+            // Update side gauges (simulated system load / performance)
+            const leftGaugeValue = 50 + Math.random() * 30; // 50-80%
+            const rightGaugeValue = 40 + Math.random() * 20; // 40-60%
+            updateSideGauge('left-gauge-progress', leftGaugeValue);
+            updateSideGauge('right-gauge-progress', rightGaugeValue);
+        }
+
+        function generateSimulatedData() {
+            // Generate random proximity distances with some obstacles
+            const proximity = [];
+            for (let i = 0; i < 8; i++) {
+                if (Math.random() < 0.25) {  // 25% chance of obstacle
+                    proximity.push(Math.random() * 500 + 50);  // 0.5m - 5.5m
+                } else {
+                    proximity.push(Math.random() * 1000 + 1500);  // 15m - 25m
+                }
+            }
+
+            // Calculate uptime
+            const uptimeSecs = Math.floor((Date.now() - startTime) / 1000);
+            messageCount += Math.floor(Math.random() * 10) + 5;
+
+            return {
+                proximity: proximity,
+                system_status: {
+                    proximity_bridge: Math.random() > 0.1 ? 'RUNNING' : 'STOPPED',
+                    data_relay: 'RUNNING',
+                    crop_monitor: Math.random() > 0.15 ? 'RUNNING' : 'STOPPED'
+                },
+                sensor_health: {
+                    rplidar: Math.random() > 0.1 ? 'Good' : 'Warning',
+                    realsense: Math.random() > 0.2 ? 'Connected' : 'Disconnected',
+                    pixhawk: 'Connected'
+                },
+                statistics: {
+                    uptime: uptimeSecs,
+                    messages_sent: messageCount,
+                    last_update: new Date().toLocaleTimeString(),
+                    rplidar_success_rate: Math.floor(90 + Math.random() * 10),
+                    realsense_fps: Math.floor(28 + Math.random() * 2)
+                }
+            };
+        }
+
+        function updateDashboard() {
+            const data = generateSimulatedData();
+
+            // Update circular sensor displays
+            updateSensorCircles(data);
+
+            // Update radar
+            drawRadar(data.proximity);
+
+            // Update status panels
+            updateStatus('system-status', data.system_status);
+            updateStatus('sensor-health', data.sensor_health);
+            updateStatus('statistics', data.statistics);
+            
+            // Update ribbon lights
+            const sys = data.system_status || {};
+            const sen = data.sensor_health || {};
+            setLight('light-proximity', sys.proximity_bridge === 'RUNNING' ? 'ok' : sys.proximity_bridge === 'STOPPED' ? 'err' : 'warn');
+            setLight('light-relay', sys.data_relay === 'RUNNING' ? 'ok' : 'warn');
+            setLight('light-crop', sys.crop_monitor === 'RUNNING' ? 'ok' : sys.crop_monitor === 'STOPPED' ? 'err' : 'warn');
+            setLight('light-lidar', sen.rplidar === 'Good' ? 'ok' : sen.rplidar === 'Warning' ? 'warn' : 'err');
+            setLight('light-realsense', sen.realsense === 'Connected' ? 'ok' : 'err');
+            setLight('light-pixhawk', sen.pixhawk === 'Connected' ? 'ok' : 'warn');
+
+            // Update room boundary
+            drawRoomBoundary(data.proximity);
+
+            // Update timestamp
+            document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+            
+            // Update header metrics
+            const stats = data.statistics || {};
+            const uptimeSecs = stats.uptime || 0;
+            const h = Math.floor(uptimeSecs / 3600).toString().padStart(2,'0');
+            const m = Math.floor((uptimeSecs % 3600)/60).toString().padStart(2,'0');
+            const s = Math.floor(uptimeSecs % 60).toString().padStart(2,'0');
+            document.getElementById('metric-uptime').textContent = `Uptime: ${h}:${m}:${s}`;
+            document.getElementById('metric-fps').textContent = `FPS: ${stats.realsense_fps || 0}`;
+            document.getElementById('metric-msg').textContent = `Msgs: ${stats.messages_sent || 0}`;
+        }
+
+        // Initial draw
+        drawRadar([2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500]);
+        
+        // Initialize sensor circles
+        updateSensorCircles({
+            statistics: { realsense_fps: 29 },
+            sensor_health: { realsense: 'Connected', rplidar: 'Good' }
+        });
+
+        // Update every 1 second
+        setInterval(updateDashboard, 1000);
+
+        // Footer credit
+        (function(){
+            const footer = document.createElement('div');
+            footer.style.position='fixed'; footer.style.bottom='8px'; footer.style.right='12px'; footer.style.fontSize='11px'; footer.style.color='rgba(255,255,255,0.5)';
+            footer.textContent = 'Developed by Harinder Singh | Demo Mode - Open dashboard_standalone.html directly';
+            document.body.appendChild(footer);
+        })();
+
+        // Vision toolbar buttons
+        const btnLive = document.getElementById('btn-live');
+        const btnSnap = document.getElementById('btn-snap');
+        const btnGallery = document.getElementById('btn-gallery');
+        const cropContainer = document.querySelector('.crop-image-container');
+        const inlineGallery = document.getElementById('inline-gallery');
+        const visionPlaceholder = document.getElementById('vision-placeholder');
+
+        let currentView = 'live';
+
+        function showLiveView() {
+            currentView = 'live';
+            cropContainer.style.display = 'grid';
+            inlineGallery.classList.remove('active');
+            visionPlaceholder.textContent = 'Live camera feed (demo mode)';
+            btnLive.style.background = 'var(--accent)';
+            btnSnap.style.background = '';
+            btnGallery.style.background = '';
+        }
+
+        function showSnapshots() {
+            currentView = 'snap';
+            cropContainer.style.display = 'grid';
+            inlineGallery.classList.remove('active');
+            visionPlaceholder.textContent = 'Latest snapshot (demo mode)';
+            btnLive.style.background = '';
+            btnSnap.style.background = 'var(--accent)';
+            btnGallery.style.background = '';
+        }
+
+        function showGallery() {
+            currentView = 'gallery';
+            cropContainer.style.display = 'none';
+            inlineGallery.classList.add('active');
+            populateDemoGallery();
+            btnLive.style.background = '';
+            btnSnap.style.background = '';
+            btnGallery.style.background = 'var(--accent)';
+        }
+
+        function populateDemoGallery() {
+            // Create demo gallery items - more items for horizontal scrolling
+            const demoImages = [
+                { name: 'crop_001.jpg', time: '7:45:12 pm' },
+                { name: 'crop_002.jpg', time: '7:44:58 pm' },
+                { name: 'crop_003.jpg', time: '7:44:45 pm' },
+                { name: 'crop_004.jpg', time: '7:44:32 pm' },
+                { name: 'crop_005.jpg', time: '7:44:18 pm' },
+                { name: 'crop_006.jpg', time: '7:44:05 pm' },
+                { name: 'crop_007.jpg', time: '7:43:51 pm' },
+                { name: 'crop_008.jpg', time: '7:43:38 pm' },
+                { name: 'crop_009.jpg', time: '7:43:24 pm' },
+                { name: 'crop_010.jpg', time: '7:43:11 pm' },
+            ];
+
+            let html = '';
+            demoImages.forEach((img, idx) => {
+                const hue = (idx * 36) % 360; // Different colors for each thumbnail
+                html += `
+                    <div class="thumb">
+                        <div style="width:100%; height:80px; background: linear-gradient(135deg, hsla(${hue}, 60%, 50%, 0.15), hsla(${hue + 60}, 60%, 50%, 0.1)); border-radius:6px; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--muted); font-size: 9px;">
+                            <div style="font-size: 20px; opacity: 0.3;">📷</div>
+                            <div>${img.name}</div>
+                        </div>
+                        <div class="cap">${img.time}</div>
+                    </div>
+                `;
+            });
+            inlineGallery.innerHTML = html;
+        }
+
+        btnLive.addEventListener('click', showLiveView);
+        btnSnap.addEventListener('click', showSnapshots);
+        btnGallery.addEventListener('click', showGallery);
+
+        // Initialize with live view
+        showLiveView();
+
+        // Theme toggle
+        const themeBtn = document.getElementById('theme-toggle');
+        function toggleTheme(){
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'sport' ? '' : 'sport';
+            if (next) document.documentElement.setAttribute('data-theme', next);
+            else document.documentElement.removeAttribute('data-theme');
+        }
+        themeBtn.addEventListener('click', toggleTheme);
+        // Keyboard shortcut: press "t" to toggle theme
+        window.addEventListener('keydown', (e) => { if ((e.key||'').toLowerCase() === 't') toggleTheme(); });
+    </script>
+</body>
+</html>
+

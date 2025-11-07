@@ -14,12 +14,12 @@
             --cyan: #00ffff;
             --cyan-glow: rgba(0, 255, 255, 1);
             --cyan-light: rgba(0, 255, 255, 0.3);
-            --green: #00ff00;
+            --green: #00ff88;
             --orange: #ff9500;
-            --red: #ff0055;
-            --purple: #b300ff;
+            --red: #ff3366;
+            --purple: #7b00ff;
             --pink: #ff0099;
-            --yellow: #ffff00;
+            --yellow: #ffcc00;
             --blue: #0099ff;
             --muted: rgba(255, 255, 255, 0.9);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
@@ -38,16 +38,16 @@
         .sidebar {
             background: linear-gradient(135deg, 
                 rgba(26, 17, 69, 0.95) 0%, 
-                rgba(179, 0, 255, 0.3) 50%, 
-                rgba(255, 0, 153, 0.2) 100%);
+                rgba(0, 51, 102, 0.8) 50%, 
+                rgba(0, 153, 255, 0.3) 100%);
             border: 3px solid;
-            border-image: linear-gradient(180deg, #b300ff, #ff0099, #ff9500, #b300ff) 1;
+            border-image: linear-gradient(180deg, #00ffff, #0099ff, #7b00ff, #00ffff) 1;
             border-radius: 20px;
             padding: 20px;
             box-shadow: 
-                0 10px 40px rgba(179, 0, 255, 0.5),
-                0 0 50px rgba(255, 0, 153, 0.3),
-                inset 0 0 30px rgba(255, 255, 0, 0.1);
+                0 10px 40px rgba(0, 153, 255, 0.5),
+                0 0 50px rgba(0, 255, 255, 0.3),
+                inset 0 0 30px rgba(0, 255, 136, 0.1);
             height: fit-content;
             position: sticky;
             top: 16px;
@@ -253,17 +253,17 @@
         
         .dashboard-panel {
             background: linear-gradient(135deg, 
-                rgba(26, 17, 69, 0.9) 0%, 
-                rgba(51, 0, 102, 0.7) 50%, 
+                rgba(26, 17, 69, 0.95) 0%, 
+                rgba(0, 51, 102, 0.8) 50%, 
                 rgba(0, 153, 255, 0.3) 100%);
             border: 3px solid;
-            border-image: linear-gradient(135deg, #00ffff, #b300ff, #ff0099, #00ffff) 1;
+            border-image: linear-gradient(135deg, #00ffff, #0099ff, #7b00ff, #00ffff) 1;
             border-radius: 20px;
             padding: 20px;
             box-shadow: 
-                0 10px 40px rgba(179, 0, 255, 0.4),
+                0 10px 40px rgba(0, 153, 255, 0.4),
                 0 0 60px rgba(0, 255, 255, 0.3),
-                inset 0 0 30px rgba(255, 0, 153, 0.1);
+                inset 0 0 30px rgba(123, 0, 255, 0.1);
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
@@ -290,10 +290,10 @@
         
         .dashboard-panel:hover {
             box-shadow: 
-                0 15px 50px rgba(179, 0, 255, 0.6),
+                0 15px 50px rgba(0, 153, 255, 0.6),
                 0 0 80px rgba(0, 255, 255, 0.5),
-                0 0 120px rgba(255, 0, 153, 0.3),
-                inset 0 0 40px rgba(255, 255, 0, 0.1);
+                0 0 100px rgba(123, 0, 255, 0.3),
+                inset 0 0 40px rgba(0, 255, 136, 0.1);
             transform: translateY(-3px) scale(1.02);
         }
         
@@ -304,7 +304,7 @@
             margin-bottom: 16px;
             font-size: 16px;
             font-weight: 900;
-            background: linear-gradient(90deg, #00ffff, #b300ff, #ff0099, #ffff00);
+            background: linear-gradient(90deg, #00ffff, #0099ff, #7b00ff, #00ff88);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -312,7 +312,7 @@
             letter-spacing: 0.15em;
             padding-bottom: 12px;
             border-bottom: 2px solid;
-            border-image: linear-gradient(90deg, #00ffff, #b300ff, #ff0099, #ffff00) 1;
+            border-image: linear-gradient(90deg, #00ffff, #0099ff, #7b00ff, #00ff88) 1;
             filter: drop-shadow(0 0 20px rgba(0, 255, 255, 0.8));
         }
         
@@ -499,14 +499,14 @@
             padding: 14px;
             background: linear-gradient(135deg, 
                 rgba(0, 255, 255, 0.2) 0%, 
-                rgba(179, 0, 255, 0.2) 50%, 
-                rgba(255, 0, 153, 0.1) 100%);
+                rgba(0, 153, 255, 0.25) 50%, 
+                rgba(123, 0, 255, 0.15) 100%);
             border: 2px solid;
-            border-image: linear-gradient(135deg, #00ffff, #b300ff) 1;
+            border-image: linear-gradient(135deg, #00ffff, #0099ff) 1;
             border-radius: 12px;
             transition: all 0.3s ease;
             box-shadow: 
-                0 4px 15px rgba(179, 0, 255, 0.3),
+                0 4px 15px rgba(0, 153, 255, 0.3),
                 0 0 20px rgba(0, 255, 255, 0.2),
                 inset 0 1px 0 rgba(255, 255, 255, 0.2);
             position: relative;
@@ -520,7 +520,7 @@
             left: -2px;
             right: -2px;
             bottom: -2px;
-            background: linear-gradient(45deg, #00ffff, #b300ff, #ff0099, #ffff00);
+            background: linear-gradient(45deg, #00ffff, #0099ff, #7b00ff, #00ff88);
             border-radius: 12px;
             opacity: 0;
             z-index: -1;
@@ -650,8 +650,7 @@
         .chip { padding: 4px 10px; border: 1px solid rgba(0,255,255,0.4); color: var(--cyan); background: transparent; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.2s ease; text-transform: uppercase; font-weight: 600; }
         .chip.active { background: var(--cyan); color: var(--bg); box-shadow: 0 0 10px rgba(0,255,255,0.3); }
         
-        /* Gallery - duplicate rules removed, see below */
-        
+        /* Gallery Modal */
         .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
         .gallery-modal.open { display: flex; }
         .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 20px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); overflow-y: auto; display: flex; flex-direction: column; }
@@ -814,10 +813,10 @@
             width: 100%;
             height: 100%;
             background: 
-                radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(179, 0, 255, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 40% 20%, rgba(255, 0, 153, 0.15) 0%, transparent 50%),
-                radial-gradient(circle at 60% 60%, rgba(255, 255, 0, 0.1) 0%, transparent 30%);
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.2) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 153, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(123, 0, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 60% 60%, rgba(0, 255, 136, 0.1) 0%, transparent 30%);
             pointer-events: none;
             z-index: -1;
             animation: bgPulse 10s ease-in-out infinite;
@@ -1180,7 +1179,7 @@
 </head>
 <body>
     <!-- Logout Button -->
-    <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
+    <button class="logout-btn" id="logout-btn">Logout</button>
     
     <!-- Developer Credit -->
     <div class="developer-credit">Developed by Harinder Singh</div>
@@ -1346,12 +1345,12 @@
                                 <div class="status-card-value" id="gps-lon">--</div>
                             </div>
                             <div class="status-card">
-                                <div class="status-card-title">Altitude</div>
-                                <div class="status-card-value" id="gps-alt">-- m</div>
-                            </div>
-                            <div class="status-card">
                                 <div class="status-card-title">GPS Fix</div>
                                 <div class="status-card-value" id="gps-fix">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">RTK Satellites</div>
+                                <div class="status-card-value" id="gps-rtk-sats">--</div>
                             </div>
                             <div class="status-card">
                                 <div class="status-card-title">Roll</div>
@@ -1362,16 +1361,8 @@
                                 <div class="status-card-value" id="attitude-pitch">--°</div>
                             </div>
                             <div class="status-card">
-                                <div class="status-card-title">Yaw</div>
-                                <div class="status-card-value" id="attitude-yaw">--°</div>
-                            </div>
-                            <div class="status-card">
                                 <div class="status-card-title">Battery Voltage</div>
                                 <div class="status-card-value" id="battery-voltage">-- V</div>
-                            </div>
-                            <div class="status-card">
-                                <div class="status-card-title">Battery Current</div>
-                                <div class="status-card-value" id="battery-current">-- A</div>
                             </div>
                             <div class="status-card">
                                 <div class="status-card-title">Battery Remaining</div>
@@ -1466,6 +1457,47 @@
                 realsense_fps: 0
             }
         };
+
+        // Logout handling (works with backend or standalone file mode)
+        (function setupLogout(){
+            const btn = document.getElementById('logout-btn');
+            if (!btn) return;
+
+            function localFallback(){
+                try { localStorage.clear(); } catch (e) {}
+                try { sessionStorage.clear(); } catch (e) {}
+                // If running from file://, just inform the user
+                if (location.protocol === 'file:') {
+                    alert('Logged out locally. Close this tab or navigate away.');
+                    return;
+                }
+                // Best-effort redirect
+                window.location.href = '/login';
+            }
+
+            async function doLogout(){
+                // Standalone file: no server available
+                if (location.protocol === 'file:') {
+                    localFallback();
+                    return;
+                }
+                try {
+                    const res = await fetch('/logout', { method: 'GET', credentials: 'include' });
+                    if (res.ok) {
+                        window.location.href = '/login';
+                    } else {
+                        localFallback();
+                    }
+                } catch (e) {
+                    localFallback();
+                }
+            }
+
+            btn.addEventListener('click', function(e){
+                e.preventDefault();
+                doLogout();
+            });
+        })();
 
         // Update timestamp
         function updateTimestamp() {
@@ -1687,10 +1719,14 @@
                 const gps = data.gps;
                 document.getElementById('gps-lat').textContent = (gps.lat !== undefined && gps.lat !== 0) ? gps.lat.toFixed(7) + '°' : '--';
                 document.getElementById('gps-lon').textContent = (gps.lon !== undefined && gps.lon !== 0) ? gps.lon.toFixed(7) + '°' : '--';
-                document.getElementById('gps-alt').textContent = (gps.alt !== undefined && gps.alt !== 0) ? gps.alt.toFixed(2) + ' m' : '-- m';
                 const fixTypes = ['No Fix', 'No Fix', '2D Fix', '3D Fix', 'DGPS', 'RTK Float', 'RTK Fixed'];
                 const fixType = (gps.fix !== undefined && gps.fix < fixTypes.length) ? fixTypes[gps.fix] : 'Unknown';
                 document.getElementById('gps-fix').textContent = fixType;
+                const rtkEl = document.getElementById('gps-rtk-sats');
+                if (rtkEl) {
+                    const rtkCount = (gps.rtk_sats !== undefined) ? gps.rtk_sats : (gps.sats !== undefined ? gps.sats : '--');
+                    rtkEl.textContent = rtkCount;
+                }
                 // Color code GPS fix status
                 const fixEl = document.getElementById('gps-fix');
                 if (fixEl) {
@@ -1706,14 +1742,16 @@
                 const att = data.attitude;
                 document.getElementById('attitude-roll').textContent = (att.roll !== undefined) ? (att.roll * 180 / Math.PI).toFixed(1) + '°' : '--°';
                 document.getElementById('attitude-pitch').textContent = (att.pitch !== undefined) ? (att.pitch * 180 / Math.PI).toFixed(1) + '°' : '--°';
-                document.getElementById('attitude-yaw').textContent = (att.yaw !== undefined) ? (att.yaw * 180 / Math.PI).toFixed(1) + '°' : '--°';
+                // Altitude card removed
+                // Yaw card removed
             }
             
             // Battery
             if (data.battery) {
                 const bat = data.battery;
                 document.getElementById('battery-voltage').textContent = (bat.voltage !== undefined && bat.voltage > 0) ? bat.voltage.toFixed(2) + ' V' : '-- V';
-                document.getElementById('battery-current').textContent = (bat.current !== undefined) ? bat.current.toFixed(2) + ' A' : '-- A';
+                const curEl = document.getElementById('battery-current');
+                if (curEl) curEl.textContent = (bat.current !== undefined) ? bat.current.toFixed(2) + ' A' : '-- A';
                 document.getElementById('battery-remaining').textContent = (bat.remaining !== undefined) ? bat.remaining + '%' : '--%';
                 // Color code battery remaining
                 const batEl = document.getElementById('battery-remaining');
@@ -1979,7 +2017,6 @@
                     return response.json();
                 })
                 .then(data => {
-                    console.log('Gallery data:', data);
                     const modalContent = document.querySelector('.gallery-modal-content');
                     
                     // Hide large image view
