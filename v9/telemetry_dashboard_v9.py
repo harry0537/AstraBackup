@@ -10,6 +10,7 @@ import threading
 import os
 import socket
 from datetime import datetime
+from pathlib import Path
 from flask import Flask, render_template_string, jsonify, request, redirect, session, url_for
 # Make numpy optional; dashboard should not crash if it's missing
 try:
@@ -101,7 +102,9 @@ telemetry_data = {
 }
 
 # HTML template for dashboard
-DASHBOARD_HTML = '''
+BASE_DIR = Path(__file__).resolve().parent
+
+_FALLBACK_DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
@@ -2027,12 +2030,24 @@ DASHBOARD_HTML = '''
         }
         animate();
 
-    </script>
+</script>
 </body>
 </html>
 
 
 '''
+
+def load_dashboard_html() -> str:
+    template_path = BASE_DIR / "dashboard_standalone_v9.html"
+    try:
+        with open(template_path, "r", encoding="utf-8") as fp:
+            return fp.read()
+    except Exception as exc:
+        print(f"[DASHBOARD] Failed to load {template_path}: {exc}")
+        return _FALLBACK_DASHBOARD_HTML
+
+
+DASHBOARD_HTML = load_dashboard_html()
 
 @app.route('/')
 def index():

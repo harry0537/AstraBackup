@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="840" viewBox="0 0 1320 840">
+  <defs>
+    <style>
+      text { font-family: "Segoe UI", Arial, sans-serif; fill: #0a0a0a; font-size: 18px; }
+      .title { font-size: 28px; font-weight: 600; }
+      .subtitle { font-size: 20px; font-weight: 600; fill: #1f4b99; }
+      .box { fill: #ffffff; stroke: #113a6b; stroke-width: 2.5; rx: 14; ry: 14; }
+      .group { fill: #f0f5ff; stroke: #aec4ff; stroke-width: 2; rx: 18; ry: 18; }
+      .hardware { fill: #fff6e5; stroke: #f0b14a; stroke-width: 2.5; rx: 14; ry: 14; }
+      .arrow { fill: none; stroke: #274b8f; stroke-width: 2.5; marker-end: url(#arrowhead); }
+      .arrow-dashed { fill: none; stroke: #274b8f; stroke-width: 2.5; stroke-dasharray: 10 8; marker-end: url(#arrowhead); }
+      .note { font-size: 16px; fill: #2b5bc0; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <polygon points="0 0 12 6 0 12" fill="#274b8f"/>
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="1280" height="800" fill="#fbfcff" stroke="#b5c5ec" stroke-width="2"/>
+  <text x="60" y="80" class="title">Astra NZ V9 – High-Level Architecture</text>
+  <text x="60" y="118" class="subtitle">Visual data capture, proximity fusion, telemetry relay, and operator dashboard</text>
+
+  <!-- Hardware Layer -->
+  <rect x="60" y="150" width="360" height="260" class="group"/>
+  <text x="80" y="190" class="subtitle">Hardware Layer</text>
+
+  <rect x="80" y="210" width="140" height="70" class="hardware"/>
+  <text x="95" y="245">RealSense</text>
+  <text x="95" y="268">D435i</text>
+
+  <rect x="240" y="210" width="140" height="70" class="hardware"/>
+  <text x="265" y="245">RPLidar</text>
+  <text x="265" y="268">S3</text>
+
+  <rect x="80" y="300" width="140" height="70" class="hardware"/>
+  <text x="105" y="333">Pixhawk</text>
+  <text x="105" y="356">6C</text>
+
+  <rect x="240" y="300" width="140" height="70" class="hardware"/>
+  <text x="255" y="333">Simple</text>
+  <text x="255" y="356">RTK2B GPS</text>
+
+  <!-- Compute / Process Layer -->
+  <rect x="460" y="150" width="800" height="520" class="group"/>
+  <text x="480" y="190" class="subtitle">Companion Computer Processes (Ubuntu Rover PC)</text>
+
+  <!-- Vision Server -->
+  <rect x="500" y="220" width="240" height="120" class="box"/>
+  <text x="520" y="255">Component 196</text>
+  <text x="520" y="280">RealSense Vision Server</text>
+  <text x="520" y="305" class="note">Captures RGB · Depth · IR</text>
+  <text x="520" y="330" class="note">Writes /tmp/vision_v9/*</text>
+
+  <!-- Proximity Bridge -->
+  <rect x="780" y="220" width="240" height="120" class="box"/>
+  <text x="800" y="255">Component 195</text>
+  <text x="800" y="280">Combo Proximity Bridge</text>
+  <text x="800" y="305" class="note">Fuses LIDAR + depth</text>
+  <text x="800" y="330" class="note">Streams MAVLink distance</text>
+
+  <!-- Crop Monitor -->
+  <rect x="1060" y="220" width="180" height="120" class="box"/>
+  <text x="1080" y="255">Component 198</text>
+  <text x="1080" y="280">Crop Monitor</text>
+  <text x="1080" y="305" class="note">Captures 10 s RGB</text>
+  <text x="1080" y="330" class="note">Feeds dashboard buffers</text>
+
+  <!-- Telemetry Dashboard -->
+  <rect x="780" y="380" width="240" height="120" class="box"/>
+  <text x="800" y="415">Component 194</text>
+  <text x="800" y="440">Telemetry Dashboard (Flask)</text>
+  <text x="800" y="465" class="note">Serves UI · API · MJPEG</text>
+  <text x="800" y="490" class="note">Reads /tmp shared data</text>
+
+  <!-- Data Relay -->
+  <rect x="1060" y="380" width="180" height="120" class="box"/>
+  <text x="1080" y="415">Component 197</text>
+  <text x="1080" y="440">Data Relay</text>
+  <text x="1080" y="465" class="note">Posts telemetry/images</text>
+  <text x="1080" y="490" class="note">HTTP → Dashboard API</text>
+
+  <!-- Rover Manager -->
+  <rect x="620" y="520" width="240" height="120" class="box"/>
+  <text x="640" y="555">Rover Manager V9</text>
+  <text x="640" y="580" class="note">Start/stop orchestration</text>
+  <text x="640" y="605" class="note">Health & dependency checks</text>
+
+  <!-- Filesystem cluster -->
+  <rect x="500" y="380" width="240" height="120" class="box"/>
+  <text x="520" y="415">Shared Storage</text>
+  <text x="520" y="440" class="note">/tmp/vision_v9</text>
+  <text x="520" y="465" class="note">/tmp/proximity_v9.json</text>
+  <text x="520" y="490" class="note">/tmp/crop_monitor_v9.json</text>
+
+  <!-- Clients -->
+  <rect x="940" y="560" width="300" height="160" class="group"/>
+  <text x="960" y="600" class="subtitle">Operators & External Systems</text>
+  <rect x="980" y="620" width="240" height="70" class="box"/>
+  <text x="1000" y="655">Browser / Monitoring Clients</text>
+  <text x="1000" y="680" class="note">HTTPS via ZeroTier / LAN</text>
+
+  <!-- Connections -->
+  <!-- Hardware to Vision Server -->
+  <path class="arrow" d="M200 280 L200 360 L500 360 L500 340"/>
+  <text x="235" y="365" class="note">USB</text>
+
+  <!-- Hardware (Lidar) to Proximity Bridge -->
+  <path class="arrow" d="M310 245 L430 245 L430 240 L780 240"/>
+  <text x="440" y="215" class="note">Serial (1 Mbps)</text>
+
+  <!-- Pixhawk to Proximity Bridge -->
+  <path class="arrow" d="M150 335 L150 520 L780 520 L780 340"/>
+  <text x="190" y="510" class="note">MAVLink</text>
+
+  <!-- Vision Server to Proximity Bridge -->
+  <path class="arrow" d="M740 280 L780 280"/>
+  <text x="720" y="268" class="note">Depth files</text>
+
+  <!-- Vision Server to Crop Monitor -->
+  <path class="arrow" d="M740 320 L1060 320"/>
+  <text x="820" y="350" class="note">RGB frames</text>
+
+  <!-- Shared storage arrows -->
+  <path class="arrow" d="M620 340 L620 380"/>
+  <path class="arrow" d="M780 440 L740 440"/>
+  <path class="arrow" d="M1060 440 L740 440"/>
+  <text x="640" y="360" class="note">Writes</text>
+  <text x="730" y="420" class="note">Reads</text>
+
+  <!-- Proximity Bridge to Pixhawk -->
+  <path class="arrow" d="M900 340 L900 620 L260 620 L260 380"/>
+  <text x="270" y="640" class="note">MAVLink DISTANCE_SENSOR (10 Hz)</text>
+
+  <!-- Pixhawk to Data Relay -->
+  <path class="arrow" d="M180 335 L180 700 L1060 700 L1060 500"/>
+  <text x="220" y="720" class="note">MAVLink telemetry</text>
+
+  <!-- Data Relay to Dashboard -->
+  <path class="arrow" d="M1060 460 L1020 460"/>
+  <text x="960" y="450" class="note">HTTP POST /telemetry, /image</text>
+
+  <!-- Dashboard to Clients -->
+  <path class="arrow" d="M900 460 L900 640 L980 640"/>
+  <text x="910" y="620" class="note">HTTP(S) UI + API</text>
+
+  <!-- Dashboard streams from Vision Server -->
+  <path class="arrow" d="M620 440 L760 440"/>
+  <text x="620" y="470" class="note">Status + MJPEG frames</text>
+
+  <!-- Rover Manager control lines -->
+  <path class="arrow-dashed" d="M740 580 L800 340"/>
+  <path class="arrow-dashed" d="M740 580 L1120 340"/>
+  <path class="arrow-dashed" d="M740 580 L1120 460"/>
+  <path class="arrow-dashed" d="M740 580 L540 460"/>
+  <path class="arrow-dashed" d="M740 580 L540 320"/>
+  <text x="760" y="610" class="note">Process orchestration</text>
+
+  <!-- Legend -->
+  <rect x="60" y="440" width="360" height="220" class="group"/>
+  <text x="80" y="480" class="subtitle">Legend</text>
+  <rect x="80" y="500" width="24" height="24" class="hardware"/>
+  <text x="120" y="518">Sensor / hardware device</text>
+  <rect x="80" y="540" width="24" height="24" class="box"/>
+  <text x="120" y="558">Software component</text>
+  <rect x="80" y="580" width="24" height="24" class="group"/>
+  <text x="120" y="598">Logical grouping / environment</text>
+  <line x1="80" y1="620" x2="120" y2="620" class="arrow"/>
+  <text x="130" y="626">Primary data flow</text>
+  <line x1="80" y1="650" x2="120" y2="650" class="arrow-dashed"/>
+  <text x="130" y="656">Control / orchestration path</text>
+</svg>
+
