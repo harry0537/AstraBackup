@@ -49,7 +49,7 @@ SAFE_DISTANCE_CM = 150  # Stop if obstacle closer than this (1.5m)
 CAUTION_DISTANCE_CM = 300  # Slow down if obstacle closer than this (3m)
 MAX_DISTANCE_CM = 2500  # Maximum sensor range
 MIN_THROTTLE = 1520  # Minimum throttle (slow forward) - increased to overcome dead zone
-MAX_THROTTLE = 1650  # Maximum throttle (moderate forward) - increased for better movement
+MAX_THROTTLE = 1700  # Maximum throttle (good forward speed) - increased for acceleration
 STOP_THROTTLE = 1500  # Neutral/stop
 STEERING_CENTER = 1500  # Center steering
 STEERING_RANGE = 400  # Max steering deflection (±400 from center)
@@ -152,6 +152,7 @@ class ObstacleNavigation:
     def find_best_direction(self, sectors):
         """
         Find the best direction to travel based on obstacle data.
+        Prioritizes forward movement but steers around obstacles.
         
         Returns:
             best_sector: Index of sector with most clearance
@@ -160,26 +161,41 @@ class ObstacleNavigation:
         if not sectors or len(sectors) != 8:
             return None, 0
         
-        # Prefer forward sectors, but consider all if forward is blocked
+        # Prefer forward sectors for normal driving
         best_sector = None
         best_clearance = 0
         
-        # First, check forward sectors (preferred)
+        # Check forward sectors first (preferred for forward movement)
+        forward_clearance = 0
         for sector in self.forward_sectors:
             if sector < len(sectors):
                 clearance = sectors[sector]
+                forward_clearance = max(forward_clearance, clearance)
                 if clearance > best_clearance:
                     best_clearance = clearance
                     best_sector = sector
         
-        # If forward is blocked, check sides
-        if best_clearance < SAFE_DISTANCE_CM:
-            for sector in [2, 3, 4, 5, 6]:  # Right, Rear-Right, Rear, Rear-Left, Left
+        # If forward is clear enough (> 2m), prefer forward
+        if forward_clearance > 200:
+            # Find best forward sector
+            for sector in self.forward_sectors:
+                if sector < len(sectors) and sectors[sector] > 200:
+                    return sector, sectors[sector]
+        
+        # If forward is blocked (< 1.5m), find best escape direction
+        if forward_clearance < SAFE_DISTANCE_CM:
+            # Check all sectors for best escape route
+            for sector in range(8):
                 if sector < len(sectors):
                     clearance = sectors[sector]
                     if clearance > best_clearance:
                         best_clearance = clearance
                         best_sector = sector
+        
+        # If no good direction found, use forward anyway (will slow down)
+        if best_sector is None:
+            best_sector = 0  # Default to forward
+            best_clearance = sectors[0] if sectors else 0
         
         return best_sector, best_clearance
     
@@ -221,6 +237,7 @@ class ObstacleNavigation:
     def calculate_throttle(self, sectors):
         """
         Calculate throttle based on obstacle proximity.
+        Accelerates when clear, slows down near obstacles.
         
         Args:
             sectors: Current sector distances
@@ -238,19 +255,19 @@ class ObstacleNavigation:
         
         min_forward = min(forward_distances)
         
-        # Stop if obstacle too close
+        # Stop if obstacle too close (< 1.5m)
         if min_forward < SAFE_DISTANCE_CM:
             self.stats['obstacle_stops'] += 1
             return STOP_THROTTLE
         
-        # Slow down if obstacle in caution zone
+        # Slow down if obstacle in caution zone (1.5m - 3m)
         if min_forward < CAUTION_DISTANCE_CM:
             # Linear interpolation: SAFE_DISTANCE -> MIN_THROTTLE, CAUTION_DISTANCE -> MAX_THROTTLE
             ratio = (min_forward - SAFE_DISTANCE_CM) / (CAUTION_DISTANCE_CM - SAFE_DISTANCE_CM)
             throttle = MIN_THROTTLE + ratio * (MAX_THROTTLE - MIN_THROTTLE)
             return int(throttle)
         
-        # Full speed ahead if clear
+        # Full speed ahead if clear (> 3m) - accelerate!
         return MAX_THROTTLE
     
     def navigate(self):
@@ -404,9 +421,13 @@ class ObstacleNavigation:
         
         print("\n[OK] Navigation system operational")
         print("  • Update rate: 10Hz")
-        print("  • Safe distance: 1.5m")
-        print("  • Caution distance: 3.0m")
+        print("  • Safe distance: 1.5m (stops if closer)")
+        print("  • Caution distance: 3.0m (slows down)")
+        print("  • Max throttle: 1700 (good forward speed)")
         print("  • Press Ctrl+C to stop\n")
+        print("⚠️  IMPORTANT: Set rover to MANUAL mode (not GUIDED)")
+        print("   GUIDED mode requires GPS waypoints - use MANUAL for RC override")
+        print("   Rover will accelerate forward when clear, steer around obstacles\n")
         
         try:
             last_nav = time.time()
