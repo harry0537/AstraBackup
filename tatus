@@ -1,0 +1,29 @@
+warning: in the working copy of 'v9/tools/apply_params.py', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/v9/tools/apply_params.py b/v9/tools/apply_params.py[m
+[1mindex 1a7fe1c..5b95e53 100644[m
+[1m--- a/v9/tools/apply_params.py[m
+[1m+++ b/v9/tools/apply_params.py[m
+[36m@@ -21,7 +21,6 @@[m [mdef load_param_file(param_file):[m
+                 if not line or line.startswith('#'):[m
+                     continue[m
+                 # Parse "PARAM_NAME,VALUE" format[m
+[31m-                # We keep the format intentionally simple so teammates can edit the file with any text editor.[m
+                 if ',' in line:[m
+                     parts = line.split(',', 1)[m
+                     if len(parts) == 2:[m
+[36m@@ -80,7 +79,6 @@[m [mdef apply_params(master, params, backup_file=None):[m
+     failed = 0[m
+     [m
+     for param_name, param_value in params.items():[m
+[31m-        # Push each parameter one at a time so we can report exactly which ones fail.[m
+         try:[m
+             # Send parameter set[m
+             master.mav.param_set_send([m
+[36m@@ -145,7 +143,6 @@[m [mdef main():[m
+     # Connect to Pixhawk[m
+     print(f"\nConnecting to Pixhawk at {args.port} ({args.baud} baud)...")[m
+     try:[m
+[31m-        # Using pymavlink keeps the process identical to Mission Planner, so the settings mirror field usage.[m
+         master = mavutil.mavlink_connection(args.port, baud=args.baud)[m
+     except Exception as e:[m
+         print(f"✗ Failed to connect: {e}")[m
