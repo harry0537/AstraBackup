@@ -4,15 +4,21 @@
 
 ### 1. Flight Mode
 
-**Recommended: GUIDED Mode**
-- Allows RC override commands to work
-- Enables obstacle avoidance if configured
-- Can still accept manual RC input as override
+**REQUIRED: MANUAL Mode (for RC override without GPS)**
+- **Use MANUAL mode for obstacle navigation without GPS waypoints**
+- GUIDED mode requires GPS waypoints/position targets
+- MANUAL mode accepts RC override directly
+- No GPS needed - perfect for indoor testing
 
-**Alternative: MANUAL Mode**
-- Also accepts RC override
-- Simpler, but no built-in obstacle avoidance
-- Good for testing
+**NOT Recommended: GUIDED Mode**
+- GUIDED mode expects GPS waypoints or position targets
+- RC override may not work properly without active mission
+- Use GUIDED only if you have GPS waypoints
+
+**Why MANUAL?**
+- Direct RC control via MAVLink
+- No waypoint requirements
+- Works perfectly for obstacle-based navigation
 
 **NOT Recommended: AUTO Mode**
 - Will try to follow waypoints

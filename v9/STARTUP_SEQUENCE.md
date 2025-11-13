@@ -79,10 +79,11 @@ Waiting for proximity data (max 30 seconds)...
 - Select correct port/baud rate
 - Wait for heartbeat
 
-**3b. Set Flight Mode to GUIDED:**
+**3b. Set Flight Mode to MANUAL:**
 - Mission Planner → Flight Data → Mode dropdown
-- Select **"GUIDED"**
+- Select **"MANUAL"** (NOT GUIDED - GUIDED requires GPS waypoints)
 - Verify mode change successful
+- **MANUAL mode is required for RC override without GPS**
 
 **3c. Disable GPS Requirement (if needed):**
 - Mission Planner → Config/Tuning → Safety
@@ -129,7 +130,7 @@ Before expecting movement:
 - [ ] **Proximity Bridge**: Showing obstacle data (e.g., "Closest: 75cm")
 - [ ] **Navigation Script**: Shows `Nav:ACTIVE` and `MAV:✓ Prox:✓`
 - [ ] **Mission Planner**: Connected and showing heartbeat
-- [ ] **Mission Planner**: Mode set to **GUIDED**
+- [ ] **Mission Planner**: Mode set to **MANUAL** (not GUIDED - GUIDED requires GPS waypoints)
 - [ ] **Mission Planner**: Proximity tab shows 8 sectors updating
 - [ ] **Mission Planner**: Rover status shows **ARMED**
 - [ ] **Navigation Script**: Commands being sent (`TX:XXXX` increasing)
@@ -186,7 +187,7 @@ Once all steps complete:
 **Order:**
 1. `python3 rover_manager_v9.py` (Terminal 1)
 2. `python3 obstacle_navigation_v9.py` (Terminal 2)
-3. Mission Planner → GUIDED mode → ARM
+3. Mission Planner → **MANUAL** mode → ARM (NOT GUIDED - GUIDED requires GPS waypoints)
 
 **That's it!** The rover will now navigate using obstacle data.
 
