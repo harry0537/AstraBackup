@@ -53,6 +53,8 @@ VISION_STATUS_FILE = os.path.join(VISION_SERVER_DIR, "status.json")
 
 
 class ComboProximityBridge:
+    # This component glues LiDAR, depth data, and MAVLink together.
+    # It never touches the RealSense camera directly; instead it consumes the files written by the Vision Server.
     def __init__(self):
         self.lidar = None
         self.mavlink = None
@@ -65,6 +67,7 @@ class ComboProximityBridge:
         self.num_sectors = 8
 
         # Sensor data storage with thread safety
+        # Each index represents a 45° slice around the rover; we update them from the LiDAR and depth threads.
         self.lidar_sectors = [self.max_distance_cm] * self.num_sectors
         self.realsense_sectors = [self.max_distance_cm] * self.num_sectors
         self.lock = threading.Lock()
@@ -97,6 +100,7 @@ class ComboProximityBridge:
 
     def check_vision_server(self):
         """Check if Vision Server is running and providing data."""
+        # Rather than assume the depth file is current, we read the heartbeat the Vision Server writes.
         try:
             if not os.path.exists(VISION_STATUS_FILE):
                 return False
@@ -131,6 +135,7 @@ class ComboProximityBridge:
                 return None, None, False
             
             # Read metadata first
+            # The JSON tells us how fresh the frame is and prevents reprocessing the same sequence number.
             with open(DEPTH_META_FILE, 'r') as f:
                 meta = json.load(f)
             
@@ -148,6 +153,7 @@ class ComboProximityBridge:
                 return None, None, False  # Same frame, skip
             
             # Read binary depth data
+            # We expect a flat uint16 buffer that we reshape into (height x width).
             width = meta.get('width', 424)
             height = meta.get('height', 240)
             
@@ -270,6 +276,8 @@ class ComboProximityBridge:
 
                 try:
                     # Simple approach: quick scan, quick exit
+                    # We spin up the motor long enough to grab a chunk of points, then shut it back down
+                    # so we are not burning power while idle.
                     self.lidar.start_motor()
                     time.sleep(0.5)
 
@@ -301,6 +309,7 @@ class ComboProximityBridge:
                     if len(scan_data) > 5:
                         sectors = [self.max_distance_cm] * self.num_sectors
                         for angle, distance_mm in scan_data:
+                            # Convert readings to centimeters and bucket them into the correct compass sector.
                             distance_cm = max(self.min_distance_cm,
                                             min(int(distance_mm / 10), self.max_distance_cm))
                             sector = int((angle + 22.5) / 45) % 8
@@ -308,6 +317,7 @@ class ComboProximityBridge:
                                 sectors[sector] = distance_cm
 
                         with self.lock:
+                            # Take the lock so the fusion loop sees a consistent snapshot.
                             self.lidar_sectors = sectors
                         self.stats['lidar_success'] += 1
 
@@ -391,6 +401,7 @@ class ComboProximityBridge:
                 consecutive_failures = 0
                 
                 # Process depth data (SAME LOGIC AS V8)
+                # We convert the depth matrix into eight sector distances, mirroring the LiDAR layout.
                 width = meta['width']
                 height = meta['height']
                 sectors = [self.max_distance_cm] * self.num_sectors
@@ -435,6 +446,7 @@ class ComboProximityBridge:
                             pass
                 
                 with self.lock:
+                    # Update the shared depth-based array for the fusion loop.
                     self.realsense_sectors = sectors
                 self.stats['realsense_success'] += 1
                 
@@ -451,10 +463,12 @@ class ComboProximityBridge:
             return
 
         with self.lock:
+            # Take a snapshot of the latest sensor readings so we can work outside the lock.
             lidar = self.lidar_sectors.copy()
             rsc = self.realsense_sectors.copy()
 
         # PRIORITY: RealSense for forward (most critical)
+        # The front arc is where we fear crashes, so we take the closest value from either source.
         fused = [self.max_distance_cm] * self.num_sectors
         for i in range(self.num_sectors):
             if i in [0, 1, 7]:  # Forward arc - RealSense is reliable
@@ -494,6 +508,7 @@ class ComboProximityBridge:
 
         # Publish status
         try:
+            # Write an atomic JSON update so dashboards and CLI tools always see a complete payload.
             payload = {
                 'timestamp': time.time(),
                 'sectors_cm': fused,
@@ -517,6 +532,7 @@ class ComboProximityBridge:
         l_rate = int((self.stats['lidar_success'] / max(1, self.stats['lidar_attempts'])) * 100)
 
         with self.lock:
+            # Peek at the current arrays while locked so we don't race with the update threads.
             lidar_min = min(self.lidar_sectors)
             rs_min = min(self.realsense_sectors)
             # Get sample of fused data for debugging
@@ -585,12 +601,14 @@ class ComboProximityBridge:
 
         # Start threads
         if lidar_ok:
+            # Spin up a worker thread to keep LiDAR readings flowing.
             threading.Thread(target=self.lidar_thread, daemon=True).start()
             print("[OK] LIDAR thread started")
         else:
             print("[WARNING] LIDAR not available - using Vision Server only")
 
         if vision_server_ready:
+            # Second worker reads depth frames from disk and keeps the shared array fresh.
             threading.Thread(target=self.realsense_thread_v9, daemon=True).start()
             print("[OK] RealSense thread started (reading from Vision Server)")
 

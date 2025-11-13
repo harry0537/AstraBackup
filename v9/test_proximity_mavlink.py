@@ -37,6 +37,7 @@ def test_receive_messages():
     # Try UDP connection (won't conflict with serial)
     print("\nTrying UDP connection (for Mission Planner style)...")
     try:
+        # UDP works alongside the running proximity bridge; Mission Planner typically listens on the same port.
         mavlink = mavutil.mavlink_connection('udp:127.0.0.1:14550', input=False)
         print("✓ UDP connection ready (but may not receive serial messages)")
         print("  Use Mission Planner to check for DISTANCE_SENSOR messages")
@@ -45,6 +46,7 @@ def test_receive_messages():
         pass
     
     # Try to connect to Pixhawk via serial (may conflict if proximity bridge is using it)
+    # This is a fallback for standalone testing; it will fail politely if the main bridge already owns the port.
     candidates = ['/dev/ttyACM0'] + [f'/dev/ttyACM{i}' for i in range(1, 4)]
     mavlink = None
     
@@ -94,6 +96,7 @@ def test_receive_messages():
                       f"id={msg.id}")
             
             # Print summary every 5 seconds
+            # This gives a quick sanity check without waiting for the script to finish.
             if time.time() - last_summary > 5.0:
                 elapsed = time.time() - start_time
                 print(f"\n--- Summary (after {elapsed:.1f}s) ---")

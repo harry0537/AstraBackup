@@ -13,6 +13,10 @@ import json
 from datetime import datetime
 
 # Component definitions (startup order is CRITICAL in V9)
+# Each entry spells out how we want the orchestrator to treat the process:
+# - which script to launch,
+# - how long to wait before moving on,
+# - and what "healthy" looks like once it is running.
 COMPONENTS = [
     {
         'id': 196,
@@ -61,7 +65,7 @@ class RoverManager:
     def __init__(self):
         self.processes = {}
         self.running = True
-        self.config = self.load_config()
+        self.config = self.load_config()  # Pull in ports and paths up front so every child sees the same picture
         
         # Detect Python command
         venv_path = os.path.expanduser("~/rover_venv/bin/python3")
@@ -70,10 +74,12 @@ class RoverManager:
         else:
             self.python_cmd = "python3"
         
-        os.makedirs('logs', exist_ok=True)
+        os.makedirs('logs', exist_ok=True)  # Keep one place for stdout/stderr instead of chasing terminal output
     
     def load_config(self):
-        """Load or create default configuration"""
+        """Load or create default configuration."""
+        # The rover should keep rolling even if the config file is missing or broken,
+        # so we merge whatever we can read with a sensible default dictionary.
         config_file = "rover_config_v9.json"
         default = {
             "dashboard_ip": "0.0.0.0",
@@ -94,6 +100,8 @@ class RoverManager:
     
     def cleanup_orphaned_processes(self):
         """Kill any orphaned V9 processes before starting new ones."""
+        # The manager is opinionated about being the only conductor in town.
+        # Before we launch fresh copies we sweep away anything left behind from a crash or manual kill.
         print("\n[Cleanup] Checking for orphaned V9 processes...")
         
         # Get current PID to avoid killing ourselves
@@ -111,6 +119,8 @@ class RoverManager:
         killed_count = 0
         
         # First, kill old manager processes (but not this one)
+        # We might be relaunching after a power cycle or shell reconnect,
+        # so we politely ask any other manager instances to step aside.
         try:
             # Get all rover_manager_v9.py PIDs
             result = subprocess.run(
@@ -134,6 +144,7 @@ class RoverManager:
             pass
         
         # Kill all other _v9.py processes gracefully (excluding manager)
+        # The rest of the components follow the naming convention, so we send them SIGTERM as well.
         try:
             # Use pgrep to get PIDs, then kill each one except current
             result = subprocess.run(
@@ -170,10 +181,12 @@ class RoverManager:
                 pass
         
         # Wait a moment for graceful shutdown
+        # Give the processes a couple seconds to clean up files and release hardware.
         if killed_count > 0:
             time.sleep(2)
             
             # Force kill any remaining processes (excluding current)
+            # If any stubborn processes are still around, use SIGKILL as a last resort.
             try:
                 result = subprocess.run(
                     ['pgrep', '-f', '_v9.py'],
@@ -240,6 +253,8 @@ class RoverManager:
     
     def setup_directories(self):
         """Create necessary directories."""
+        # These temp folders are shared by several services.
+        # Creating them ahead of time keeps every process from racing to make them.
         dirs = ['/tmp/vision_v9', '/tmp/crop_archive', '/tmp/rover_vision']
         for d in dirs:
             os.makedirs(d, exist_ok=True)
@@ -253,13 +268,14 @@ class RoverManager:
             return False
         
         # Start process with log files (like v8)
+        # We tee stdout/stderr into rotating files so operators can inspect them later.
         try:
             log_name = script.replace('.py', '')
             stdout_file = open(f"logs/{log_name}.out.log", 'a')
             stderr_file = open(f"logs/{log_name}.err.log", 'a')
             
             env = os.environ.copy()
-            env['ASTRA_CONFIG'] = json.dumps(self.config)
+            env['ASTRA_CONFIG'] = json.dumps(self.config)  # Share the config with children without extra files
             
             python_exe = self.python_cmd
             print(f"  → Starting {name} with {python_exe}")
@@ -283,6 +299,7 @@ class RoverManager:
             }
             
             # Wait a bit and check if it's still running
+            # A short pause avoids reporting success on scripts that die instantly.
             time.sleep(2)
             if process.poll() is None:
                 print(f"  ✓ {name} started (PID: {process.pid})")
@@ -315,6 +332,7 @@ class RoverManager:
         print("Press Ctrl+C for graceful shutdown\n")
         
         while self.running:
+            # Refresh the console output so the operator gets a live dashboard feeling.
             # Clear screen (like v8)
             try:
                 subprocess.run(['clear' if os.name != 'nt' else 'cls'],
@@ -328,6 +346,7 @@ class RoverManager:
             print("-" * 60)
             
             for comp_id, proc_info in self.processes.items():
+                # Each loop we read the process handle and decide if it's healthy, stopped, or needs a restart.
                 name = proc_info['info']['name']
                 process = proc_info['process']
                 
@@ -342,6 +361,7 @@ class RoverManager:
                     restarts = str(proc_info['restarts'])
                     
                     # Auto-restart critical components (like v8)
+                    # If the Vision Server or Proximity Bridge hiccups, try to bring it back automatically a few times.
                     if proc_info['info']['critical'] and proc_info['restarts'] < 3:
                         print(f"\n⚠ Restarting {name}...")
                         
@@ -365,6 +385,7 @@ class RoverManager:
             print("-" * 60)
             
             # Show proximity data if available (like v8)
+            # This gives the operator immediate feedback about what the sensors are seeing.
             try:
                 with open('/tmp/proximity_v9.json', 'r') as f:
                     prox = json.load(f)
@@ -398,6 +419,7 @@ class RoverManager:
         self.running = False
         
         # First, gracefully stop all managed processes
+        # We terminate in reverse order to let downstream services finish any final writes.
         for comp_id, proc_info in self.processes.items():
             process = proc_info['process']
             if process.poll() is None:
@@ -421,6 +443,7 @@ class RoverManager:
                         pass
         
         # Then kill any remaining orphaned V9 processes (like LIDAR that might keep spinning)
+        # This extra sweep keeps the USB devices free for the next run.
         print("  Cleaning up orphaned processes...", end='')
         try:
             # Graceful kill first
@@ -470,6 +493,7 @@ class RoverManager:
         print("-" * 40)
         failed_critical = False
         for component in COMPONENTS:
+            # Launch each component sequentially so dependencies (like Vision Server first) are respected.
             process_info = self.start_component(component)
             
             if process_info:
@@ -497,6 +521,7 @@ class RoverManager:
         """Graceful shutdown - stop all managed processes and kill orphans"""
         self.stop_all()
         # Also clean up any orphaned processes that might have been spawned
+        # Even if we think we stopped everything, do one more safety sweep.
         try:
             subprocess.run(['pkill', '-f', '_v9.py'], capture_output=True, timeout=2)
             time.sleep(1)
@@ -507,6 +532,7 @@ class RoverManager:
 
 def main():
     # Check if running from correct directory
+    # Running from elsewhere would break all our relative paths, so bail out early with a helpful hint.
     if not os.path.exists('realsense_vision_server_v9.py'):
         print("ERROR: Must run from v9 directory")
         print("Run: cd /path/to/v9 && python3 rover_manager_v9.py")
@@ -516,7 +542,7 @@ def main():
     
     # Setup signal handlers
     def signal_handler(sig, frame):
-        manager.running = False
+        manager.running = False  # Let the monitor loop exit cleanly on Ctrl+C
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

@@ -51,12 +51,15 @@ class DataRelay:
         # Image tracking
         self.last_image_send = 0
         self.images_sent = 0
+        # We act as the courier: pull fresh telemetry from the Pixhawk, scoop up the latest crop photo,
+        # and push both to the web dashboard on a predictable cadence.
 
     def connect_pixhawk(self):
         """Connect to Pixhawk for telemetry - Try UDP first to avoid serial conflicts"""
         try:
             # Try UDP first (if proximity bridge is using serial)
             # This allows both components to run simultaneously
+            # UDP lets multiple clients subscribe without fighting over the USB cable.
             try:
                 print("Attempting UDP connection to Pixhawk (udp:127.0.0.1:14550)...")
                 self.mavlink = mavutil.mavlink_connection(
@@ -105,6 +108,7 @@ class DataRelay:
 
         # Process multiple messages to catch all telemetry updates
         for _ in range(10):  # Process up to 10 messages per call
+            # We poll quickly and bail when the queue runs dry to keep latency low.
             msg = self.mavlink.recv_match(blocking=False)
             if not msg:
                 break
@@ -141,6 +145,7 @@ class DataRelay:
 
         # Add proximity data
         try:
+            # The proximity bridge writes its latest fusion results to disk, so we piggyback on that instead of subscribing again.
             with open('/tmp/proximity_v9.json', 'r') as f:
                 prox = json.load(f)
             self.telemetry['proximity'] = {
@@ -178,6 +183,7 @@ class DataRelay:
 
         try:
             # Check file age (don't send stale images)
+            # We do not want to blast the dashboard with the same photo if the crop monitor pauses.
             file_age = time.time() - os.path.getmtime(image_path)
             if file_age > 90:
                 return False
@@ -202,6 +208,7 @@ class DataRelay:
             image_b64 = base64.b64encode(image_bytes).decode('utf-8')
 
             # Send to dashboard
+            # The dashboard expects a JSON blob so we inline the image rather than juggling multipart uploads.
             payload = {
                 'timestamp': datetime.now().isoformat(),
                 'type': 'scheduled',
@@ -235,6 +242,7 @@ class DataRelay:
             self.update_telemetry()
 
             # Send every 2 seconds
+            # A short period keeps the dashboard responsive without saturating the network.
             if time.time() - last_send > 2:
                 self.send_telemetry()
                 last_send = time.time()
@@ -245,6 +253,7 @@ class DataRelay:
         """Thread for image relay"""
         while self.running:
             # Send image every minute
+            # We give the crop monitor a minute between uploads to avoid hammering slower networks.
             if time.time() - self.last_image_send >= 60:
                 if self.send_image():
                     print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✓ Image sent to dashboard (#{self.images_sent})", end='')
@@ -274,6 +283,7 @@ class DataRelay:
             print("Running in demo mode (no telemetry)")
 
         # Start threads
+        # Run telemetry and image loops in the background so they can operate independently.
         telem_thread = threading.Thread(target=self.telemetry_thread, daemon=True)
         telem_thread.start()
 

@@ -149,6 +149,9 @@ class ProcessLock:
 
 
 class VisionServer:
+    # This class grabs exclusive ownership of the RealSense camera,
+    # unwraps the frames, and drops easy-to-consume files in /tmp so the rest of the system
+    # can read them without touching the USB device.
     def __init__(self):
         self.pipeline = None
         self.rgb_sensor = None
@@ -167,6 +170,7 @@ class VisionServer:
         }
         
         # Initialize object detection (YOLOv5)
+        # If the optional model is available we'll annotate RGB frames; otherwise we log a friendly hint.
         self.obj_detector = None
         self.obj_classes = []
         self.obj_colors = []
@@ -184,14 +188,16 @@ class VisionServer:
         self.last_exposure_update = 0.0
         
         # Create output directory
+        # Every other component expects these files to exist, so we ensure the folder is ready here.
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         
         # Setup logging
-        self.log_file = open(LOG_FILE, 'a')
+        self.log_file = open(LOG_FILE, 'a')  # Keep a rolling log so field teams can see what the camera was doing.
         self.log(f"Vision Server V9 starting - PID: {os.getpid()}")
     
     def log(self, message):
         """Log message to file and stdout."""
+        # We mirror messages to stdout for live monitoring while keeping a timestamped file trail.
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_line = f"[{timestamp}] {message}\n"
         print(message)
@@ -259,6 +265,7 @@ class VisionServer:
         annotated = color_image.copy()
         
         if self.obj_detector is None:
+            # If the model isn't ready we still return a frame, but we stamp it with guidance so the operator knows why.
             # Fallback: draw a message indicating model status
             h, w = color_image.shape[:2]
             
@@ -392,6 +399,7 @@ class VisionServer:
             return
         
         try:
+            # The camera runs under wildly different lighting. Nudge exposure/gain so dashboards stay readable.
             if mean_brightness > TARGET_BRIGHTNESS_HIGH:
                 # Too bright → reduce exposure
                 if self.rgb_sensor.supports(rs.option.exposure):

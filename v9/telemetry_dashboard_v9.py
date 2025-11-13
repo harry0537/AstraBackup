@@ -47,6 +47,7 @@ SIGNUP_SECRET = os.environ.get('ASTRA_SIGNUP_CODE', 'LETMEIN')
 USERS_FILE = '/tmp/astra_dashboard_users.json'
 
 def load_users():
+    """Read dashboard credentials from disk, falling back to the default admin/admin pair."""
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'r') as f:
@@ -57,6 +58,7 @@ def load_users():
     return {"admin": "admin"}
 
 def save_users(users: dict) -> None:
+    """Persist the in-memory user map so new signups survive restarts."""
     try:
         with open(USERS_FILE, 'w') as f:
             json.dump(users, f)
@@ -64,6 +66,7 @@ def save_users(users: dict) -> None:
         print(f"[AUTH] Failed to save users: {e}")
 
 # Global telemetry data
+# The Flask routes mutate this dictionary, and the frontend polls it for live updates.
 telemetry_data = {
     'proximity': [2500] * 8,  # 8 sectors in cm
     'gps': {
@@ -2038,6 +2041,7 @@ _FALLBACK_DASHBOARD_HTML = '''
 '''
 
 def load_dashboard_html() -> str:
+    """Load the operator UI from disk so we can tweak styling without touching the Python code."""
     template_path = BASE_DIR / "dashboard_standalone_v9.html"
     try:
         with open(template_path, "r", encoding="utf-8") as fp:
@@ -2051,6 +2055,7 @@ DASHBOARD_HTML = load_dashboard_html()
 
 @app.route('/')
 def index():
+    """Serve the main dashboard once a user is logged in."""
     if not session.get('user'):
         return redirect(url_for('login'))
     return render_template_string(DASHBOARD_HTML)
@@ -2100,6 +2105,7 @@ a{color:var(--cyan); text-decoration:none}
 
 @app.route('/login', methods=['GET','POST'])
 def login():
+    """Render the login screen and validate credentials against the local user file."""
     if request.method == 'POST':
         users = load_users()
         user = request.form.get('username','')
@@ -2112,6 +2118,7 @@ def login():
 
 @app.route('/logout')
 def logout():
+    """Clear the session cookie and send the user back to the login page."""
     session.clear()
     return redirect('/login')
 
@@ -2136,6 +2143,7 @@ SIGNUP_HTML = '''
 
 @app.route('/signup', methods=['GET','POST'])
 def signup():
+    """Allow a new admin account to be created with the shared signup secret."""
     if request.method == 'POST':
         secret = request.form.get('secret','')
         if secret != SIGNUP_SECRET:
@@ -2327,6 +2335,7 @@ def get_crop_latest():
     return "No latest image", 404
 
 def mjpeg_generator(shared_image_path: str):
+    """Yield multipart JPEG frames by watching the shared image path for updates."""
     import time
     last_mtime = 0
     while True:
@@ -2367,6 +2376,7 @@ def api_stream():
 # Additional streams: depth (pseudo-color) and IR (mono)
 @app.route('/api/stream/depth')
 def api_stream_depth():
+    """Serve the pseudo-colored depth feed produced by the Vision Server."""
     from flask import Response
     shared = '/tmp/vision_v9/depth_latest.jpg'
     if not os.path.exists(shared):
@@ -2375,6 +2385,7 @@ def api_stream_depth():
 
 @app.route('/api/stream/obj-detect')
 def api_stream_obj_detect():
+    """Stream the YOLO-annotated RGB frames when object detection is enabled."""
     from flask import Response
     shared = '/tmp/vision_v9/obj_detect_latest.jpg'
     if not os.path.exists(shared):

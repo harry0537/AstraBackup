@@ -49,9 +49,13 @@ class SimpleCropMonitor:
         self.last_capture_time = 0
         self.current_slot = 1  # Rolling slot number 1-10
         self.last_frame_number = 0  # V9: Track processed frames
+        # The goal is simple: grab the freshest JPEG from the Vision Server and keep two copies—
+        # one for the longish archive and one for the 10-slot dashboard carousel.
 
     def check_vision_server(self):
         """Check if Vision Server is running and providing images."""
+        # The crop monitor is a follower. We read the Vision Server heartbeat JSON
+        # to avoid copying stale frames when the camera goes offline.
         try:
             if not os.path.exists(VISION_STATUS_FILE):
                 return False
@@ -77,6 +81,7 @@ class SimpleCropMonitor:
         print("Waiting for Vision Server...")
         
         for i in range(30):
+            # We poll both the image and its metadata; the metadata proves the frame is new.
             if os.path.exists(SOURCE_IMAGE) and os.path.exists(SOURCE_METADATA):
                 # Check if Vision Server is actually running
                 try:
@@ -100,6 +105,7 @@ class SimpleCropMonitor:
 
     def manage_image_archive(self):
         """Manage rolling archive - delete oldest if over limit"""
+        # Keep the archive capped so the rover's disk does not quietly fill up.
         try:
             images = sorted(glob.glob(os.path.join(IMAGE_DIR, "crop_*.jpg")), 
                           key=os.path.getmtime)
@@ -125,6 +131,7 @@ class SimpleCropMonitor:
 
         try:
             # V9: Read metadata to check frame number and freshness
+            # This keeps us from re-saving the same frame over and over when nothing changes.
             if os.path.exists(SOURCE_METADATA):
                 try:
                     with open(SOURCE_METADATA, 'r') as f:
@@ -152,6 +159,8 @@ class SimpleCropMonitor:
                     pass
             
             # Read image from Vision Server robustly
+            # Some embedded filesystems complain if we open while the Vision Server is writing,
+            # so we try a raw byte load first and fall back to cv2.imread.
             try:
                 with open(SOURCE_IMAGE, 'rb') as f:
                     data = f.read()
@@ -165,6 +174,7 @@ class SimpleCropMonitor:
                 return False
 
             # 1. Save to archive with timestamp
+            # The archive helps agronomists review the last few minutes without digging through logs.
             self.manage_image_archive()
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             archive_path = os.path.join(IMAGE_DIR, f"crop_{timestamp}.jpg")
@@ -190,6 +200,7 @@ class SimpleCropMonitor:
                     print(f"\r[{datetime.now().strftime('%H:%M:%S')}] ✗ No PIL available for fallback", end='')
 
             # 2. Save to dashboard rolling buffer (1-10)
+            # The dashboard expects numbered files it can serve quickly as thumbnails.
             dashboard_path = os.path.join(DASHBOARD_DIR, f"{self.current_slot}.jpg")
             
             # Ensure dashboard directory exists
@@ -233,6 +244,7 @@ class SimpleCropMonitor:
             print(f"  Dashboard: {dashboard_path} ({os.path.getsize(dashboard_path) if os.path.exists(dashboard_path) else 0} bytes)")
 
             # Write status file
+            # Other services (dashboard, CLI tools) read this JSON to show live state.
             try:
                 archive_size = os.path.getsize(archive_path)
             except Exception:
@@ -278,6 +290,7 @@ class SimpleCropMonitor:
         if not self.check_source_available():
             print("✗ Vision Server not available - waiting and retrying...")
             # Keep waiting until source appears
+            # It's better to block here than spam the logs with missing file errors.
             while not os.path.exists(SOURCE_IMAGE):
                 time.sleep(1)
             print("✓ Source image detected, continuing...")
@@ -291,6 +304,7 @@ class SimpleCropMonitor:
         print()
 
         # Initialize all 10 dashboard slots
+        # Populate the gallery so the dashboard is fully populated on first load.
         print("Initializing dashboard slots (1-10)...")
         for i in range(10):
             success = self.capture_image()
@@ -317,6 +331,7 @@ class SimpleCropMonitor:
                     
                     if success:
                         consecutive_failures = 0
+                        # Reset the failure streak because we got a healthy frame.
                     else:
                         consecutive_failures += 1
                         if consecutive_failures >= max_failures:
@@ -327,6 +342,7 @@ class SimpleCropMonitor:
                                 print(f"  ✗ Vision Server not responding")
                                 print(f"  Waiting for Vision Server to restart...")
                             # Keep trying but don't exit
+                            # Staying alive here lets the monitor recover automatically when Vision Server comes back.
                             consecutive_failures = 0
 
                 time.sleep(1)
