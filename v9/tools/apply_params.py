@@ -21,7 +21,6 @@ def load_param_file(param_file):
                 if not line or line.startswith('#'):
                     continue
                 # Parse "PARAM_NAME,VALUE" format
-                # We keep the format intentionally simple so teammates can edit the file with any text editor.
                 if ',' in line:
                     parts = line.split(',', 1)
                     if len(parts) == 2:
@@ -80,7 +79,6 @@ def apply_params(master, params, backup_file=None):
     failed = 0
     
     for param_name, param_value in params.items():
-        # Push each parameter one at a time so we can report exactly which ones fail.
         try:
             # Send parameter set
             master.mav.param_set_send(
@@ -145,7 +143,6 @@ def main():
     # Connect to Pixhawk
     print(f"\nConnecting to Pixhawk at {args.port} ({args.baud} baud)...")
     try:
-        # Using pymavlink keeps the process identical to Mission Planner, so the settings mirror field usage.
         master = mavutil.mavlink_connection(args.port, baud=args.baud)
     except Exception as e:
         print(f"✗ Failed to connect: {e}")
