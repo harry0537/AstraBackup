@@ -10,6 +10,7 @@ import threading
 import json
 import os
 import sys
+import math
 from pymavlink import mavutil
 
 # Hardware configuration - Load from config file
@@ -80,6 +81,7 @@ class ObstacleNavigation:
         self.current_steering = STEERING_CENTER
         self.current_throttle = STOP_THROTTLE
         self.navigation_active = False
+        self.previous_steering = STEERING_CENTER  # For smoothing
         
         # Statistics
         self.stats = {
@@ -201,36 +203,113 @@ class ObstacleNavigation:
     
     def calculate_steering(self, target_sector, sectors):
         """
-        Calculate steering command to navigate toward target sector.
+        Calculate autonomous steering using all sensor data.
+        Uses potential field method: repulsion from obstacles + attraction to open space.
+        This makes the rover automatically steer around obstacles.
         
         Args:
-            target_sector: Sector index (0-7) to steer toward
-            sectors: Current sector distances
+            target_sector: Sector index (0-7) - hint for preferred direction
+            sectors: Current sector distances (8 values) - all sensor data
         
         Returns:
             steering_pwm: PWM value for steering (1000-2000)
         """
-        if target_sector is None:
+        if not sectors or len(sectors) != 8:
             return STEERING_CENTER
         
-        # Convert sector to angle (0° = front, positive = right)
-        # Sector 0 = 0°, 1 = 45°, 2 = 90°, 3 = 135°, 4 = 180°, 5 = -135°, 6 = -90°, 7 = -45°
-        sector_angles = [0, 45, 90, 135, 180, -135, -90, -45]
-        target_angle = sector_angles[target_sector] if target_sector < len(sector_angles) else 0
+        # Sector angles in degrees (0° = front, positive = right, negative = left)
+        # Sector 0 = 0° (front), 1 = 45° (front-right), 2 = 90° (right), 3 = 135° (rear-right)
+        # Sector 4 = 180° (rear), 5 = -135° (rear-left), 6 = -90° (left), 7 = -45° (front-left)
+        sector_angles_deg = [0, 45, 90, 135, 180, -135, -90, -45]
         
-        # Normalize to -1.0 (left) to +1.0 (right)
-        steering_normalized = target_angle / 90.0
-        steering_normalized = max(-1.0, min(1.0, steering_normalized))
+        # Calculate steering using potential field method
+        # Repulsion: obstacles push rover away (stronger when closer)
+        # Attraction: open space pulls rover forward (stronger when clearer)
+        
+        # Forward bias - prefer going forward
+        forward_bias = 0.5  # 50% bias toward forward movement
+        
+        # Calculate repulsion vector from obstacles
+        repulsion_x = 0.0
+        repulsion_y = 0.0
+        
+        for i, distance_cm in enumerate(sectors):
+            if distance_cm >= MAX_DISTANCE_CM:
+                continue  # No obstacle detected, skip
+            
+            # Calculate repulsion strength (inverse of distance)
+            # Closer obstacles = stronger repulsion
+            distance_m = distance_cm / 100.0  # Convert to meters
+            
+            if distance_m < (SAFE_DISTANCE_CM / 100.0):
+                # Very close - very strong repulsion
+                repulsion_strength = 20.0 / max(distance_m, 0.1)
+            elif distance_m < (CAUTION_DISTANCE_CM / 100.0):
+                # Close - strong repulsion
+                repulsion_strength = 10.0 / max(distance_m, 0.3)
+            else:
+                # Far - weak repulsion
+                repulsion_strength = 2.0 / max(distance_m, 1.0)
+            
+            # Convert sector angle to radians
+            angle_rad = math.radians(sector_angles_deg[i])
+            
+            # Calculate repulsion vector (away from obstacle)
+            # Obstacle at angle θ pushes rover away in direction (θ + 180°)
+            repulsion_x += repulsion_strength * math.cos(angle_rad + math.pi)
+            repulsion_y += repulsion_strength * math.sin(angle_rad + math.pi)
+        
+        # Calculate attraction vector toward open space (forward preference)
+        attraction_x = forward_bias  # Forward bias
+        attraction_y = 0.0
+        
+        # Add attraction to sectors with most clearance (especially forward)
+        max_clearance = max(sectors)
+        if max_clearance > 200:  # If any sector is clear (> 2m)
+            for i, distance_cm in enumerate(sectors):
+                if distance_cm > 200:
+                    # Calculate attraction strength based on clearance
+                    clearance_m = distance_cm / 100.0
+                    attraction_strength = (clearance_m - 2.0) / 5.0  # Stronger for more clearance
+                    
+                    angle_rad = math.radians(sector_angles_deg[i])
+                    
+                    # Attraction toward open space (especially forward sectors)
+                    if i in self.forward_sectors:
+                        attraction_x += attraction_strength * math.cos(angle_rad) * 3.0  # 3x for forward
+                        attraction_y += attraction_strength * math.sin(angle_rad) * 3.0
+                    else:
+                        attraction_x += attraction_strength * math.cos(angle_rad) * 0.3  # Less for sides
+                        attraction_y += attraction_strength * math.sin(angle_rad) * 0.3
+        
+        # Combine repulsion and attraction
+        total_x = repulsion_x + attraction_x
+        total_y = repulsion_y + attraction_y
+        
+        # Calculate desired steering angle from combined vector
+        if abs(total_x) < 0.001 and abs(total_y) < 0.001:
+            # No clear direction - go straight forward
+            steering_angle_deg = 0.0
+        else:
+            steering_angle_deg = math.degrees(math.atan2(total_y, total_x))
+        
+        # Normalize steering angle to -90° to +90° range (rover can't turn more than 90°)
+        steering_angle_deg = max(-90.0, min(90.0, steering_angle_deg))
+        
+        # Convert to normalized steering (-1.0 = full left, +1.0 = full right)
+        steering_normalized = steering_angle_deg / 90.0
         
         # Convert to PWM (1500 ± 400)
         steering_pwm = int(STEERING_CENTER + steering_normalized * STEERING_RANGE)
         
-        # Smooth steering if obstacles are close (avoid sharp turns near obstacles)
-        if sectors and len(sectors) == 8:
-            min_forward = min([sectors[i] for i in self.forward_sectors if i < len(sectors)])
-            if min_forward < CAUTION_DISTANCE_CM:
-                # Reduce steering intensity when close to obstacles
-                steering_pwm = int(STEERING_CENTER + (steering_pwm - STEERING_CENTER) * 0.7)
+        # Smooth steering to avoid oscillations (low-pass filter)
+        if hasattr(self, 'previous_steering'):
+            # Smooth by blending 70% new + 30% previous value
+            steering_pwm = int(steering_pwm * 0.7 + self.previous_steering * 0.3)
+        else:
+            self.previous_steering = STEERING_CENTER
+        
+        self.previous_steering = steering_pwm
         
         return steering_pwm
     
@@ -293,10 +372,10 @@ class ObstacleNavigation:
         if not sectors or len(sectors) != 8:
             return
         
-        # Find best direction
+        # Find best direction (hint for steering algorithm)
         best_sector, clearance = self.find_best_direction(sectors)
         
-        # Calculate steering and throttle
+        # Calculate autonomous steering using all sensor data
         steering = self.calculate_steering(best_sector, sectors)
         throttle = self.calculate_throttle(sectors)
         
@@ -386,8 +465,9 @@ class ObstacleNavigation:
         print("=" * 60)
         print("\n[Navigation Strategy]")
         print("  • Reads 8-sector proximity data from proximity bridge")
-        print("  • Finds sector with most clearance")
-        print("  • Steers toward that direction")
+        print("  • Autonomous steering using potential field method")
+        print("  • Repulsion from obstacles + Attraction to open space")
+        print("  • Steers automatically based on all sensor data")
         print("  • Adjusts speed based on obstacle proximity")
         print("  • Stops if obstacles < 1.5m")
         print("  • No GPS waypoints - pure reactive navigation")
