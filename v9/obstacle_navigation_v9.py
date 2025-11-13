@@ -48,8 +48,8 @@ PROXIMITY_FILE = '/tmp/proximity_v9.json'
 SAFE_DISTANCE_CM = 150  # Stop if obstacle closer than this (1.5m)
 CAUTION_DISTANCE_CM = 300  # Slow down if obstacle closer than this (3m)
 MAX_DISTANCE_CM = 2500  # Maximum sensor range
-MIN_THROTTLE = 1400  # Minimum throttle (slow forward)
-MAX_THROTTLE = 1600  # Maximum throttle (moderate forward)
+MIN_THROTTLE = 1520  # Minimum throttle (slow forward) - increased to overcome dead zone
+MAX_THROTTLE = 1650  # Maximum throttle (moderate forward) - increased for better movement
 STOP_THROTTLE = 1500  # Neutral/stop
 STEERING_CENTER = 1500  # Center steering
 STEERING_RANGE = 400  # Max steering deflection (±400 from center)
@@ -303,6 +303,7 @@ class ObstacleNavigation:
             
             # Send RC override
             # Channel 1 = Steering, Channel 3 = Throttle (typical ArduPilot rover setup)
+            # Note: RC_OVERRIDE_TIME = 3 seconds, so we must send commands continuously
             self.mavlink.mav.rc_channels_override_send(
                 self.mavlink.target_system,
                 self.mavlink.target_component,
@@ -314,6 +315,12 @@ class ObstacleNavigation:
                 0, 0, 0, 0, 0, 0, 0, 0,  # Channels 9-16
                 0, 0           # Channels 17-18
             )
+            
+            # Flush to ensure message is sent immediately
+            try:
+                self.mavlink.flush()
+            except:
+                pass
             
             self.stats['commands_sent'] += 1
             
@@ -404,12 +411,28 @@ class ObstacleNavigation:
         try:
             last_nav = time.time()
             last_status = time.time()
+            last_heartbeat = time.time()
             
             while self.running:
-                # Navigate at 10Hz
+                # Navigate at 10Hz (must be faster than RC_OVERRIDE_TIME=3s)
                 if time.time() - last_nav > 0.1:
                     self.navigate()
                     last_nav = time.time()
+                
+                # Send heartbeat to maintain connection (every 1 second)
+                if time.time() - last_heartbeat > 1.0:
+                    try:
+                        if self.mavlink:
+                            self.mavlink.mav.heartbeat_send(
+                                type=0,  # MAV_TYPE_GENERIC
+                                autopilot=0,  # MAV_AUTOPILOT_INVALID
+                                base_mode=0,
+                                custom_mode=0,
+                                system_status=3  # MAV_STATE_STANDBY
+                            )
+                    except:
+                        pass
+                    last_heartbeat = time.time()
                 
                 # Print status at 1Hz
                 if time.time() - last_status > 1.0:
