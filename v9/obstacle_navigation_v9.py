@@ -398,14 +398,15 @@ class ObstacleNavigation:
             throttle_pwm = max(1000, min(2000, int(throttle_pwm)))
             
             # Send RC override
-            # Channel 1 = Steering, Channel 3 = Throttle (typical ArduPilot rover setup)
+            # Channel 1 = Steering (Yaw), Channel 2 = Throttle (based on rover_baseline_v9.param)
+            # RCMAP_YAW = 1, RCMAP_THROTTLE = 2
             # Note: RC_OVERRIDE_TIME = 3 seconds, so we must send commands continuously
             self.mavlink.mav.rc_channels_override_send(
                 self.mavlink.target_system,
                 self.mavlink.target_component,
-                steering_pwm,  # Channel 1 - Steering
-                0,             # Channel 2
-                throttle_pwm,  # Channel 3 - Throttle
+                steering_pwm,  # Channel 1 - Steering (Yaw)
+                throttle_pwm,  # Channel 2 - Throttle (FIXED: was Channel 3)
+                0,             # Channel 3
                 0,             # Channel 4
                 0, 0, 0, 0,    # Channels 5-8
                 0, 0, 0, 0, 0, 0, 0, 0,  # Channels 9-16
