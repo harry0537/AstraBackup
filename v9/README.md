@@ -45,6 +45,7 @@ v9/
 ├── simple_crop_monitor_v9.py       # Component 198: Crop monitoring
 ├── telemetry_dashboard_v9.py       # Component 194: Web dashboard
 ├── data_relay_v9.py                # Component 197: Data relay
+├── obstacle_navigation_v9.py      # Component 199: Obstacle-based navigation
 ├── rover_manager_v9.py             # Main startup manager
 ├── rover_config_v9.json            # Configuration file
 ├── requirements.txt                # Python dependencies
@@ -130,6 +131,15 @@ v9/
 - Uploads images every 60 seconds
 - Configurable endpoints
 
+### Component 199: Obstacle Navigation (NEW!)
+**Reactive navigation without GPS waypoints**
+- Reads 8-sector proximity data from proximity bridge
+- Finds sector with most clearance
+- Steers toward open space
+- Adjusts speed based on obstacle proximity
+- Stops if obstacles < 1.5m
+- Pure reactive navigation - no waypoints needed
+
 ---
 
 ## 💻 System Requirements
@@ -184,6 +194,40 @@ See **[SETUP_GUIDE_V9.md](SETUP_GUIDE_V9.md)** for complete instructions.
 
 ## 🎮 Usage
 
+### Obstacle-Based Navigation
+
+**Drive rover using obstacle data without GPS waypoints:**
+
+```bash
+# 1. Start proximity bridge first (required)
+python3 rover_manager_v9.py
+# OR manually:
+python3 combo_proximity_bridge_v9.py
+
+# 2. Start obstacle navigation
+python3 obstacle_navigation_v9.py
+```
+
+**How it works:**
+- Reads 8-sector proximity data from `/tmp/proximity_v9.json`
+- Finds the sector with most clearance (best direction)
+- Steers toward that direction
+- Adjusts speed: slows down near obstacles, stops if < 1.5m
+- Sends RC override commands to Pixhawk (steering + throttle)
+- No GPS waypoints - pure reactive navigation
+
+**Navigation Parameters:**
+- Safe distance: 1.5m (stops if closer)
+- Caution distance: 3.0m (slows down)
+- Update rate: 10Hz
+- Steering: ±400 PWM from center
+- Throttle: 1400-1600 PWM (slow to moderate speed)
+
+**Safety:**
+- Automatically stops if proximity data unavailable
+- Stops if obstacles too close
+- Sends stop command on shutdown
+
 ### Start the System
 
 **Option 1: Rover Manager (Recommended)**
@@ -212,6 +256,9 @@ python3 telemetry_dashboard_v9.py
 
 # Terminal 5: Data Relay (optional)
 python3 data_relay_v9.py
+
+# Terminal 6: Obstacle Navigation (optional - for autonomous driving)
+python3 obstacle_navigation_v9.py
 ```
 
 ### Stop the System
