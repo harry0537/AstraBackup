@@ -1,0 +1,2704 @@
+#!/usr/bin/env python3
+"""
+Project Astra NZ - Web Telemetry Dashboard V9
+Real-time monitoring interface for proximity sensors and system status - Bug Fixes from V7
+"""
+
+import json
+import time
+import threading
+import os
+import socket
+from datetime import datetime
+from pathlib import Path
+from flask import Flask, render_template_string, jsonify, request, redirect, session, url_for
+# Make numpy optional; dashboard should not crash if it's missing
+try:
+    import numpy as np
+except Exception:
+    np = None
+
+# FIX BUG #11: Add try/except for optional flask-cors dependency
+try:
+    from flask_cors import CORS
+    CORS_AVAILABLE = True
+except ImportError:
+    CORS_AVAILABLE = False
+    print("[WARNING] flask-cors not installed - CORS disabled")
+
+# Try to import sensor libraries (optional for dashboard)
+try:
+    from rplidar import RPLidar
+    RPLIDAR_AVAILABLE = True
+except ImportError:
+    RPLIDAR_AVAILABLE = False
+
+try:
+    import pyrealsense2 as rs
+    REALSENSE_AVAILABLE = True
+except ImportError:
+    REALSENSE_AVAILABLE = False
+
+app = Flask(__name__)
+if CORS_AVAILABLE:
+    CORS(app)
+app.secret_key = os.environ.get('ASTRA_DASHBOARD_SECRET', 'astra-dashboard-secret')
+SIGNUP_SECRET = os.environ.get('ASTRA_SIGNUP_CODE', 'LETMEIN')
+USERS_FILE = '/tmp/astra_dashboard_users.json'
+
+def load_users():
+    """Read dashboard credentials from disk, falling back to the default admin/admin pair."""
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[AUTH] Failed to load users: {e}")
+    # Default built-in admin
+    return {"admin": "admin"}
+
+def save_users(users: dict) -> None:
+    """Persist the in-memory user map so new signups survive restarts."""
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users, f)
+    except Exception as e:
+        print(f"[AUTH] Failed to save users: {e}")
+
+# Global telemetry data
+# The Flask routes mutate this dictionary, and the frontend polls it for live updates.
+telemetry_data = {
+    'proximity': [2500] * 8,  # 8 sectors in cm
+    'gps': {
+        'lat': 0.0,
+        'lon': 0.0,
+        'alt': 0.0,
+        'fix': 0
+    },
+    'attitude': {
+        'roll': 0.0,
+        'pitch': 0.0,
+        'yaw': 0.0
+    },
+    'battery': {
+        'voltage': 0.0,
+        'current': 0.0,
+        'remaining': 0
+    },
+    'system_status': {
+        'proximity_bridge': 'Unknown',
+        'data_relay': 'Unknown',
+        'crop_monitor': 'Unknown'
+    },
+    'sensor_health': {
+        'rplidar': 'Unknown',
+        'realsense': 'Unknown',
+        'pixhawk': 'Unknown'
+    },
+    'statistics': {
+        'uptime': 0,
+        'messages_sent': 0,
+        'last_update': '',
+        'rplidar_success_rate': 0,
+        'realsense_fps': 0
+    }
+}
+
+# HTML template for dashboard
+BASE_DIR = Path(__file__).resolve().parent
+
+_FALLBACK_DASHBOARD_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rover Telemetry Dashboard - Project Astra NZ</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0F2845;
+            --card: #1E3A5F;
+            --text: #FFFFFF;
+            --cyan: #00FFFF;
+            --cyan-glow: rgba(0, 255, 255, 0.6);
+            --cyan-light: rgba(0, 255, 255, 0.15);
+            --green: #22C55E;
+            --orange: #F59E0B;
+            --red: #EF4444;
+            --muted: rgba(255, 255, 255, 0.75);
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Layout with sidebar */
+        .layout {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 16px;
+            max-width: 1920px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .sidebar {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: var(--shadow);
+            height: fit-content;
+            position: sticky;
+            top: 16px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+        }
+
+        .quick-status {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .quick-item { 
+            display: grid; 
+            grid-template-columns: auto 1fr;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            min-height: 20px;
+        }
+        .quick-label { 
+            color: var(--muted); 
+            font-weight: 600; 
+            letter-spacing: 0.05em;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .quick-value { 
+            font-weight: 700; 
+            color: var(--text);
+            text-align: right;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .heartbeat-item {
+            grid-template-columns: auto 1fr;
+        }
+        .heartbeat-item .quick-value {
+            display: none;
+        }
+        .heartbeat { 
+            width: 8px; 
+            height: 8px; 
+            border-radius: 50%; 
+            background: var(--green); 
+            box-shadow: 0 0 8px var(--green);
+            justify-self: end;
+            grid-column: 2;
+        }
+
+        .mini-panel { margin-top: 14px; }
+        .mini-panel .panel-header { margin-bottom: 8px; }
+        .mini-panel .logs-container { height: 220px; }
+        .mini-panel .alerts-list { max-height: 240px; overflow-y: auto; }
+        
+        /* Main Header */
+        .main-header {
+            text-align: center;
+            padding: 14px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .main-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--cyan);
+            text-shadow: 0 0 20px var(--cyan-glow);
+            margin-bottom: 12px;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-label {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .status-value {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 700;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid var(--cyan);
+        }
+        
+        .status-value.ready { color: var(--green); }
+        .status-value.autonomous { color: var(--cyan); }
+        .status-value.live { color: var(--green); }
+        .status-value.time { color: var(--cyan); }
+        
+        /* Main Grid Layout */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+            grid-auto-flow: row dense;
+        }
+        
+        .dashboard-panel {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            min-height: 280px;
+        }
+        
+        .dashboard-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+            animation: shine 4s infinite;
+        }
+        
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .dashboard-panel:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 255, 255, 0.35);
+            transform: translateY(-2px);
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 10px var(--cyan-glow);
+        }
+        
+        .panel-content {
+            height: calc(100% - 40px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* LIDAR Panel */
+        .lidar-container {
+            width: 100%;
+            height: 280px;
+            min-height: 280px;
+            position: relative;
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .lidar-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 50%;
+        }
+        
+        .lidar-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .lidar-stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .lidar-stat-item:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+        
+        .stat-value {
+            color: var(--text);
+            font-weight: 700;
+        }
+        
+        /* RealSense Panel */
+        .camera-container {
+            width: 100%;
+            height: 260px;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 255, 255, 0.05) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .camera-container img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transition: opacity 0.3s ease;
+            z-index: 3;
+        }
+        
+        #camera-placeholder {
+            transition: opacity 0.3s ease;
+            z-index: 2;
+        }
+        
+        .camera-container::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 255, 0.03) 2px,
+                rgba(0, 255, 255, 0.03) 4px
+            );
+            animation: scan 2s linear infinite;
+        }
+        
+        @keyframes scan {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+        
+        .camera-view-mode {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        
+        .btn-small {
+            padding: 4px 10px;
+            border: 1px solid var(--cyan);
+            background: transparent;
+            color: var(--cyan);
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+        }
+        
+        .btn-small:hover {
+            background: rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+        
+        .btn-small.active {
+            background: var(--cyan);
+            color: var(--bg);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+        
+        .camera-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+        .fps-row { display: flex; align-items: center; gap: 8px; }
+        #fps-sparkline { width: 100px; height: 20px; border: 1px solid rgba(0,255,255,0.2); border-radius: 4px; background: rgba(0,255,255,0.04); }
+        
+        /* System Status Panel */
+        .system-status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .status-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .status-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .status-card-title {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .status-card-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+        }
+        
+        .status-card-value.running { color: var(--green); }
+        .status-card-value.stopped { color: var(--red); }
+        .status-card-value.good { color: var(--green); }
+        .status-card-value.warning { color: var(--orange); }
+        .status-card-value.error { color: var(--red); }
+        .status-card-value.connected { color: var(--green); }
+        .status-card-value.disconnected { color: var(--red); }
+        
+        /* Statistics Panel */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .stat-card {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: var(--cyan);
+        }
+        
+        .stat-card-label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .stat-card-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--cyan);
+        }
+        
+        /* Live Logs Panel */
+        .logs-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 6px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+        .logs-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .chip { padding: 4px 10px; border: 1px solid rgba(0,255,255,0.4); color: var(--cyan); background: transparent; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.2s ease; text-transform: uppercase; font-weight: 600; }
+        .chip.active { background: var(--cyan); color: var(--bg); box-shadow: 0 0 10px rgba(0,255,255,0.3); }
+        
+        /* Gallery - duplicate rules removed, see below */
+        
+        .gallery-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .gallery-modal.open { display: flex; }
+        .gallery-modal-content { background: linear-gradient(135deg, var(--card) 0%, rgba(23,42,69,0.9) 100%); border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; padding: 20px; max-width: 92vw; max-height: 92vh; box-shadow: 0 0 24px rgba(0,255,255,0.15); overflow-y: auto; display: flex; flex-direction: column; }
+        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; max-height: 75vh; overflow-y: auto; padding: 10px; }
+        .gallery-item { position: relative; border: 1px solid rgba(0,255,255,0.15); border-radius: 8px; overflow: hidden; background: rgba(0,255,255,0.04); cursor: pointer; aspect-ratio: 4/3; min-height: 120px; }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .gallery-item:hover { border-color: rgba(0,255,255,0.5); transform: scale(1.05); transition: all 0.2s ease; }
+        .gallery-item .gallery-label { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,0.7); padding: 3px 8px; border-radius: 4px; color: white; }
+        #gallery-image { max-width: 88vw; max-height: 70vh; display: none; border-radius: 6px; margin: 0 auto; }
+        #gallery-image.show { display: block; }
+        .gallery-caption { margin-top: 10px; font-size: 12px; color: var(--muted); display: none; flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .gallery-caption.show { display: flex; }
+        .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .gallery-header h3 { margin: 0; color: var(--cyan); font-size: 18px; }
+        .no-images-msg { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 14px; }
+        
+        .logs-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .logs-container::-webkit-scrollbar-track {
+            background: rgba(0, 255, 255, 0.05);
+        }
+        
+        .logs-container::-webkit-scrollbar-thumb {
+            background: var(--cyan);
+            border-radius: 3px;
+        }
+        
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+            animation: logSlide 0.3s ease-out;
+        }
+        
+        @keyframes logSlide {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .log-time {
+            color: var(--cyan);
+            font-weight: 700;
+            margin-right: 8px;
+        }
+        
+        .log-message {
+            color: var(--text);
+        }
+        
+        .log-entry.info .log-message { color: var(--cyan); }
+        .log-entry.warn .log-message { color: var(--orange); }
+        .log-entry.error .log-message { color: var(--red); }
+        
+        /* Alerts Panel */
+        .alerts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .alert-item {
+            padding: 12px;
+            background: rgba(0, 255, 255, 0.12);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: alertSlide 0.3s ease-out;
+        }
+        
+        @keyframes alertSlide {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-item.warn {
+            border-color: var(--orange);
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .alert-item.success {
+            border-color: var(--green);
+            background: rgba(34, 197, 94, 0.1);
+        }
+        
+        .alert-icon {
+            font-size: 18px;
+        }
+        
+        .logout-btn {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            border-radius: 8px;
+            color: var(--red);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            z-index: 1000;
+            transition: all 0.2s;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: var(--red);
+        }
+        
+        /* Developer credit - fixed position in bottom right corner */
+        .developer-credit {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 6px;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+        
+        .developer-credit:hover {
+            background: rgba(0, 0, 0, 0.8);
+            border-color: rgba(0, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .layout { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%);
+            color: var(--text);
+            padding: 16px;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .header {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 2px solid rgba(0, 255, 255, 0.35);
+            border-radius: var(--radius);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.25);
+            flex-shrink: 0;
+        }
+        .header h1 {
+            font-size: 20px;
+            letter-spacing: 0.15em;
+            font-weight: 700;
+            margin: 0;
+            color: var(--cyan);
+            text-shadow: 0 0 20px var(--cyan-glow);
+        }
+        #timestamp {
+            background: rgba(0, 255, 255, 0.12);
+            color: var(--text);
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            border: 1px solid var(--cyan);
+            font-weight: 700;
+        }
+        .actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .btn {
+            padding: 4px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
+            color: var(--text);
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .container {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: flex;
+            gap: 8px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .container.status-row {
+            margin: 0 0 6px 0;
+        }
+        .container.status-row .panel {
+            flex: 1;
+            min-width: 0;
+        }
+        /* Indicator ribbon */
+        .ribbon {
+            width: 100%;
+            margin: 0 0 6px 0;
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .light {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow);
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.06) inset, 0 0 12px rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.08);
+        }
+        .on-ok { background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.8); animation: breathe 2.6s ease-in-out infinite; }
+        .on-warn { background: #f59e0b; box-shadow: 0 0 12px rgba(245,158,11,0.8); animation: pulse 1.4s ease-in-out infinite; }
+        .on-err { background: #ef4444; box-shadow: 0 0 12px rgba(239,68,68,0.8); animation: pulse 0.9s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { transform: scale(0.95); } 50% { transform: scale(1.15); } }
+        @keyframes breathe { 0%,100% { filter: saturate(0.9); } 50% { filter: saturate(1.2); } }
+        .rover-vision-container {
+            grid-column: 1 / -1;
+            margin-top: 0;
+        }
+        .vision-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 0;
+            align-items: start;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .proximity-panel {
+            grid-column: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .rover-vision-panel {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .proximity-panel .panel,
+        .rover-vision-panel .panel {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            align-items: center;
+        }
+        .proximity-panel .radar-container {
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+            flex-shrink: 0;
+        }
+        .proximity-panel .radar {
+            width: 100%;
+            height: 100%;
+        }
+        .panel {
+            background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.9) 100%);
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: var(--radius);
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        .panel:hover {
+            border-color: var(--cyan);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 255, 255, 0.35);
+            transform: translateY(-2px);
+        }
+        .panel:before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+            animation: shine 4s infinite;
+            pointer-events: none;
+        }
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        .panel h2 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--cyan);
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px var(--cyan-glow);
+        }
+        .radar-container {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            min-height: 280px;
+            margin: 0 auto;
+            border-radius: 50%;
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.12) 0%, transparent 70%);
+            box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .radar-container:after {
+            content: "";
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.0) 260deg, var(--cyan) 300deg, transparent 360deg);
+            animation: spin 6s linear infinite;
+            filter: blur(1px);
+            opacity: 0.35;
+            pointer-events: none;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .radar {
+            width: 100%;
+            height: 100%;
+        }
+        /* Old gallery-grid styles removed - using modal gallery now */
+        .thumb {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 6px;
+            text-align: center;
+            min-width: 120px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .thumb img { width: 100%; height: 80px; object-fit: cover; border-radius: 6px; }
+        .thumb .cap { color: var(--muted); font-size: 10px; margin-top: 4px; white-space: nowrap; }
+        .status-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 11px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-label {
+            color: var(--muted);
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .status-value {
+            text-align: right;
+            padding: 2px 6px;
+            border-radius: 999px;
+            border: 1px solid var(--card-border);
+            background: var(--chip);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .status-ok { color: var(--green); background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.18); }
+        .status-warning { color: var(--orange); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.18); }
+        .status-error { color: var(--red); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.18); }
+        .status-value { background: rgba(0, 255, 255, 0.15); border: 1px solid var(--cyan); }
+        .proximity-values {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px;
+            margin-top: 8px;
+            width: 100%;
+            max-width: 480px;
+        }
+        .proximity-item {
+            text-align: center;
+            padding: 5px 3px;
+            background: var(--chip);
+            border: 1px solid var(--chip-border);
+            border-radius: var(--radius-sm);
+        }
+        .proximity-label {
+            font-size: 9px;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+        }
+        .proximity-value {
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .safe { color: var(--ok); }
+        .warning { color: var(--warn); }
+        .danger { color: var(--error); }
+        .crop-image-container {
+            text-align: center;
+            margin-top: 0;
+            width: 100%;
+            max-width: 320px;
+            aspect-ratio: 1 / 1;
+            margin-left: auto;
+            margin-right: auto;
+            display: grid;
+            place-items: center;
+            flex-shrink: 0;
+        }
+        .crop-image-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .crop-image-container img:hover {
+            box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+            transform: scale(1.015);
+        }
+        .rover-vision-container .panel {
+            padding: 10px;
+        }
+        .rover-vision-container h2 {
+            font-size: 12px;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .vision-toolbar {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+        .btn.small { 
+            padding: 4px 8px; 
+            font-size: 11px;
+            transition: all 0.2s ease;
+        }
+        .alert-offline {
+            display: none;
+            padding: 14px 16px;
+            margin-top: 8px;
+            text-align: center;
+            color: #f59e0b;
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.28);
+            border-radius: var(--radius-sm);
+        }
+        @media (max-width: 980px) {
+            .vision-row { 
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .proximity-panel, .rover-vision-panel { grid-column: 1; }
+            .header h1 { font-size: 14px; }
+            .actions { flex-wrap: wrap; gap: 4px; }
+        }
+        @media (max-width: 640px) {
+            .container { grid-template-columns: 1fr; }
+            .ribbon { grid-template-columns: repeat(3, 1fr); }
+            body { padding: 8px; }
+        }
+        /* Room boundary map */
+        .room-map { width: 100%; height: 140px; margin: 4px 0 0 0; border:1px dashed var(--card-border); border-radius: 12px; }
+    </style>
+</head>
+<body>
+    <!-- Logout Button -->
+    <button class="logout-btn" onclick="window.location.href='/logout'">Logout</button>
+    
+    <!-- Developer Credit -->
+    <div class="developer-credit">Developed by Harinder Singh</div>
+    
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="panel-header">📡 QUICK STATUS</div>
+            <div class="quick-status">
+                <div class="quick-item"><span class="quick-label">Status</span><span class="quick-value" id="q-status">Ready</span></div>
+                <div class="quick-item"><span class="quick-label">Mode</span><span class="quick-value" id="q-mode">Autonomous</span></div>
+                <div class="quick-item"><span class="quick-label">Connection</span><span class="quick-value" id="q-conn">Live</span></div>
+                <div class="quick-item heartbeat-item"><span class="quick-label">Heartbeat</span><span class="heartbeat" id="q-heartbeat"></span></div>
+                <div class="quick-item"><span class="quick-label">Time</span><span class="quick-value" id="q-time">--:--</span></div>
+            </div>
+
+            <!-- Sidebar Logs -->
+            <div class="mini-panel">
+                <div class="panel-header">📋 LIVE LOGS</div>
+                <div class="logs-toolbar">
+                    <button class="chip active" data-level="all">All</button>
+                    <button class="chip" data-level="info">Info</button>
+                    <button class="chip" data-level="warn">Warn</button>
+                    <button class="chip" data-level="error">Error</button>
+                </div>
+                <div class="logs-container" id="logs-container"></div>
+            </div>
+
+            <!-- Sidebar Alerts -->
+            <div class="mini-panel">
+                <div class="panel-header">🔔 ALERTS</div>
+                <div class="alerts-list" id="alerts-list"></div>
+            </div>
+        </aside>
+        <main>
+            <!-- Main Header -->
+            <div class="main-header">
+                <h1>🚀 ROVER TELEMETRY DASHBOARD</h1>
+                <div class="status-bar">
+                    <div class="status-item">
+                        <span class="status-label">STATUS:</span>
+                        <span class="status-value ready" id="status-ready">READY</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">MODE:</span>
+                        <span class="status-value autonomous" id="status-mode">AUTONOMOUS</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">CONNECTION:</span>
+                        <span class="status-value live" id="status-connection">LIVE</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">TIME:</span>
+                        <span class="status-value time" id="status-time">--:--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Dashboard Grid -->
+            <div class="dashboard-grid">
+                <!-- LIDAR / PROXIMITY -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">🌀 LIDAR / PROXIMITY DETECTION</div>
+                    <div class="panel-content">
+                        <div class="lidar-container">
+                            <canvas id="lidar-canvas" class="lidar-canvas"></canvas>
+                        </div>
+                        <div class="lidar-stats">
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Obstacles:</span>
+                                <span class="stat-value" id="lidar-obstacles">0</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Min Range:</span>
+                                <span class="stat-value" id="lidar-min">-- m</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Success Rate:</span>
+                                <span class="stat-value" id="lidar-success">--%</span>
+                            </div>
+                            <div class="lidar-stat-item">
+                                <span class="stat-label">Avg Range:</span>
+                                <span class="stat-value" id="lidar-avg">-- m</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REALSENSE -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">🎥 REALSENSE CAMERA</div>
+                    <div class="panel-content">
+                        <div class="camera-view-mode">
+                            <button class="btn-small active" id="btn-rgb">RGB</button>
+                            <button class="btn-small" id="btn-depth">Depth</button>
+                            <button class="btn-small" id="btn-obj-detect">Object Detection</button>
+                            <span style="flex:1"></span>
+                            <button class="btn-small" id="btn-open-gallery">Open Gallery</button>
+                        </div>
+                        <div class="camera-container" id="camera-view">
+                            <img id="camera-stream" src="/api/stream" alt="RealSense Stream" style="z-index: 3;">
+                            <div id="camera-placeholder" style="text-align: center; position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); pointer-events: none;">
+                                <div style="font-size: 48px; opacity: 0.5; margin-bottom: 10px;">📹</div>
+                                <div>RealSense Camera Stream</div>
+                                <div style="font-size: 11px; opacity: 0.6; margin-top: 8px;">Waiting for stream...</div>
+                            </div>
+                        </div>
+                        <div class="camera-info">
+                            <span class="fps-row" style="color: var(--muted);">FPS: <span id="camera-fps" style="color: var(--text); font-weight: 700; margin-left: 6px;">0</span>
+                                <canvas id="fps-sparkline" width="100" height="20"></canvas>
+                            </span>
+                            <span style="color: var(--muted);">Status: <span id="camera-status" style="color: var(--text); font-weight: 700;">--</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Secondary Dashboard Grid -->
+            <div class="dashboard-grid">
+                <!-- SYSTEM STATUS -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">⚙️ SYSTEM STATUS</div>
+                    <div class="panel-content">
+                        <div class="system-status-grid">
+                            <div class="status-card">
+                                <div class="status-card-title">Proximity Bridge</div>
+                                <div class="status-card-value" id="status-proximity-bridge">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Data Relay</div>
+                                <div class="status-card-value" id="status-data-relay">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Crop Monitor</div>
+                                <div class="status-card-value" id="status-crop-monitor">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">RPLidar</div>
+                                <div class="status-card-value" id="status-rplidar">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">RealSense</div>
+                                <div class="status-card-value" id="status-realsense">Unknown</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Pixhawk</div>
+                                <div class="status-card-value" id="status-pixhawk">Unknown</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPS & TELEMETRY -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">📡 GPS & TELEMETRY</div>
+                    <div class="panel-content">
+                        <div class="system-status-grid">
+                            <div class="status-card">
+                                <div class="status-card-title">Latitude</div>
+                                <div class="status-card-value" id="gps-lat">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Longitude</div>
+                                <div class="status-card-value" id="gps-lon">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Altitude</div>
+                                <div class="status-card-value" id="gps-alt">-- m</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">GPS Fix</div>
+                                <div class="status-card-value" id="gps-fix">--</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Roll</div>
+                                <div class="status-card-value" id="attitude-roll">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Pitch</div>
+                                <div class="status-card-value" id="attitude-pitch">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Yaw</div>
+                                <div class="status-card-value" id="attitude-yaw">--°</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Voltage</div>
+                                <div class="status-card-value" id="battery-voltage">-- V</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Current</div>
+                                <div class="status-card-value" id="battery-current">-- A</div>
+                            </div>
+                            <div class="status-card">
+                                <div class="status-card-title">Battery Remaining</div>
+                                <div class="status-card-value" id="battery-remaining">--%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STATISTICS -->
+                <div class="dashboard-panel">
+                    <div class="panel-header">📊 STATISTICS</div>
+                    <div class="panel-content">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-card-label">Uptime</div>
+                                <div class="stat-card-value" id="stat-uptime">--</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">Messages Sent</div>
+                                <div class="stat-card-value" id="stat-messages">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">RPLidar Success</div>
+                                <div class="stat-card-value" id="stat-lidar-success">--%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">RealSense FPS</div>
+                                <div class="stat-card-value" id="stat-realsense-fps">0</div>
+                            </div>
+                            <div class="stat-card" style="grid-column: 1 / -1;">
+                                <div class="stat-card-label">Last Update</div>
+                                <div class="stat-card-value" style="font-size: 14px;" id="stat-last-update">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Gallery Modal -->
+    <div class="gallery-modal" id="gallery-modal" aria-hidden="true">
+        <div class="gallery-modal-content">
+            <div class="gallery-header">
+                <h3>📸 Crop Image Gallery</h3>
+                <button class="btn-small" id="gallery-close">Close</button>
+            </div>
+            <img id="gallery-image" alt="Crop capture" />
+            <div class="gallery-caption" id="gallery-caption-div">
+                <span id="gallery-caption"></span>
+                <button class="btn-small" id="gallery-back">Back to Gallery</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Telemetry data structure
+        let telemetryData = {
+            proximity: [2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500], // 8 sectors in cm
+            gps: {
+                lat: 0.0,
+                lon: 0.0,
+                alt: 0.0,
+                fix: 0
+            },
+            attitude: {
+                roll: 0.0,
+                pitch: 0.0,
+                yaw: 0.0
+            },
+            battery: {
+                voltage: 0.0,
+                current: 0.0,
+                remaining: 0
+            },
+            system_status: {
+                proximity_bridge: 'Unknown',
+                data_relay: 'Unknown',
+                crop_monitor: 'Unknown'
+            },
+            sensor_health: {
+                rplidar: 'Unknown',
+                realsense: 'Unknown',
+                pixhawk: 'Unknown'
+            },
+            statistics: {
+                uptime: 0,
+                messages_sent: 0,
+                last_update: '',
+                rplidar_success_rate: 0,
+                realsense_fps: 0
+            }
+        };
+
+        // Update timestamp
+        function updateTimestamp() {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+            });
+            const st = document.getElementById('status-time'); if (st) st.textContent = time;
+            const qt = document.getElementById('q-time'); if (qt) qt.textContent = time;
+        }
+        updateTimestamp();
+        setInterval(updateTimestamp, 1000);
+
+        // LIDAR - Initialize
+        let lidarCanvas = null;
+        let lidarCtx = null;
+        
+        function initLidar() {
+            lidarCanvas = document.getElementById('lidar-canvas');
+            if (!lidarCanvas) return;
+            lidarCtx = lidarCanvas.getContext('2d');
+            resizeLidar();
+            window.addEventListener('resize', resizeLidar);
+        }
+        
+        function resizeLidar() {
+            if (!lidarCanvas || !lidarCanvas.parentElement) return;
+            const container = lidarCanvas.parentElement;
+            const size = Math.min(container.clientWidth, container.clientHeight || 280);
+            if (size > 0) {
+                // High-DPI support
+                const dpr = window.devicePixelRatio || 1;
+                const displaySize = size;
+                lidarCanvas.width = displaySize * dpr;
+                lidarCanvas.height = displaySize * dpr;
+                lidarCanvas.style.width = displaySize + 'px';
+                lidarCanvas.style.height = displaySize + 'px';
+                lidarCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                if (telemetryData && telemetryData.proximity) {
+                    drawLidar(telemetryData.proximity);
+                }
+            }
+        }
+
+        let scanAngle = 0;
+        const sectorAngles = [-22.5, 22.5, 67.5, 112.5, 157.5, -157.5, -112.5, -67.5];
+        const sectorNames = ['FRONT', 'F-RIGHT', 'RIGHT', 'B-RIGHT', 'BACK', 'B-LEFT', 'LEFT', 'F-LEFT'];
+
+        function drawLidar(distances) {
+            if (!lidarCanvas || !lidarCtx || lidarCanvas.width === 0 || lidarCanvas.height === 0) return;
+            
+            // Get logical canvas size (after transform scaling)
+            const dpr = window.devicePixelRatio || 1;
+            const logicalWidth = lidarCanvas.width / dpr;
+            const logicalHeight = lidarCanvas.height / dpr;
+            const centerX = logicalWidth / 2;
+            const centerY = logicalHeight / 2;
+            const maxRadius = Math.min(logicalWidth, logicalHeight) / 2 - 20;
+            
+            // Clear canvas using logical dimensions
+            lidarCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+            // Grid circles (improved line quality)
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.25)';
+            lidarCtx.lineWidth = 2;
+            for (let r = 0.25; r <= 1; r += 0.25) {
+                lidarCtx.beginPath();
+                lidarCtx.arc(centerX, centerY, maxRadius * r, 0, Math.PI * 2);
+                lidarCtx.stroke();
+                
+                // Distance labels
+                lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                lidarCtx.font = 'bold 13px sans-serif';
+                lidarCtx.textAlign = 'left';
+                lidarCtx.textBaseline = 'middle';
+                lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                lidarCtx.shadowBlur = 2;
+                lidarCtx.fillText(`${Math.round(r * 25)}m`, centerX + 6, centerY - maxRadius * r);
+                lidarCtx.shadowBlur = 0;
+            }
+            
+            // Danger rings (1m red, 3m orange)
+            const r1 = (1 / 25) * maxRadius;
+            const r3 = (3 / 25) * maxRadius;
+            lidarCtx.setLineDash([8, 4]);
+            lidarCtx.lineWidth = 2.5;
+            lidarCtx.strokeStyle = 'rgba(239, 68, 68, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r1, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+            lidarCtx.beginPath(); lidarCtx.arc(centerX, centerY, r3, 0, Math.PI * 2); lidarCtx.stroke();
+            lidarCtx.setLineDash([]);
+            
+            // Radial lines
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            lidarCtx.lineWidth = 1.5;
+            for (let angle of sectorAngles) {
+                const rad = (angle - 90) * Math.PI / 180;
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.lineTo(centerX + maxRadius * Math.cos(rad), centerY + maxRadius * Math.sin(rad));
+                lidarCtx.stroke();
+            }
+
+            // Scanning line
+            scanAngle = (scanAngle + 3) % 360;
+            const scanRad = (scanAngle - 90) * Math.PI / 180;
+            lidarCtx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.lineWidth = 2;
+            lidarCtx.shadowBlur = 15;
+            lidarCtx.shadowColor = 'rgba(0, 255, 255, 0.8)';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY);
+            lidarCtx.lineTo(centerX + maxRadius * Math.cos(scanRad), centerY + maxRadius * Math.sin(scanRad));
+            lidarCtx.stroke();
+            lidarCtx.shadowBlur = 0;
+
+            // Obstacles
+            let obstacleCount = 0;
+            let minDist = Infinity;
+            let totalDist = 0;
+            for (let i = 0; i < 8; i++) {
+                const distance = distances[i] / 100; // Convert cm to meters
+                if (distance < 25) {
+                    obstacleCount++;
+                    if (distance < minDist) minDist = distance;
+                }
+                totalDist += distance;
+                
+                const pixelDist = Math.min((distance / 25) * maxRadius, maxRadius);
+                const startAngle = (sectorAngles[i] - 90) * Math.PI / 180;
+                const endAngle = (sectorAngles[(i + 1) % 8] - 90) * Math.PI / 180;
+                
+                let color;
+                if (distance < 1) color = 'rgba(239, 68, 68, 0.7)';
+                else if (distance < 3) color = 'rgba(245, 158, 11, 0.6)';
+                else color = 'rgba(34, 197, 94, 0.4)';
+                
+                lidarCtx.fillStyle = color;
+                lidarCtx.beginPath();
+                lidarCtx.moveTo(centerX, centerY);
+                lidarCtx.arc(centerX, centerY, pixelDist, startAngle, endAngle);
+                lidarCtx.lineTo(centerX, centerY);
+                lidarCtx.closePath();
+                lidarCtx.fill();
+            }
+
+            // Center rover
+            lidarCtx.fillStyle = '#22C55E';
+            lidarCtx.beginPath();
+            lidarCtx.moveTo(centerX, centerY - 10);
+            lidarCtx.lineTo(centerX - 7, centerY + 7);
+            lidarCtx.lineTo(centerX + 7, centerY + 7);
+            lidarCtx.closePath();
+            lidarCtx.fill();
+        
+            // Sector labels
+            lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            lidarCtx.font = 'bold 12px sans-serif';
+            lidarCtx.textAlign = 'center';
+            lidarCtx.textBaseline = 'middle';
+            lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+            lidarCtx.shadowBlur = 3;
+            for (let i = 0; i < 8; i++) {
+                const startAngle = sectorAngles[i];
+                const endAngle = sectorAngles[(i + 1) % 8];
+                let centerAngle = (startAngle + endAngle) / 2;
+                if (Math.abs(endAngle - startAngle) > 180) {
+                    centerAngle = (startAngle + endAngle + 360) / 2;
+                    if (centerAngle > 180) centerAngle -= 360;
+                }
+                const angleDeg = centerAngle - 90;
+                const rad = angleDeg * Math.PI / 180;
+                const labelRadius = maxRadius - 12;
+                const lx = centerX + labelRadius * Math.cos(rad);
+                const ly = centerY + labelRadius * Math.sin(rad);
+                lidarCtx.fillText(sectorNames[i], lx, ly);
+            }
+            lidarCtx.shadowBlur = 0;
+            
+            // Nearest distance text
+            lidarCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            lidarCtx.font = 'bold 14px sans-serif';
+            lidarCtx.textAlign = 'center';
+            lidarCtx.textBaseline = 'middle';
+            lidarCtx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+            lidarCtx.shadowBlur = 4;
+            const nearestText = (minDist === Infinity ? '--' : minDist.toFixed(2)) + ' m';
+            lidarCtx.fillText(nearestText, centerX, centerY + 28);
+            lidarCtx.shadowBlur = 0;
+
+            // Calculate success rate
+            const validReadings = distances.filter(d => d > 0 && d < 2500).length;
+            const successRate = Math.round((validReadings / 8) * 100);
+
+            // Update stats
+            document.getElementById('lidar-obstacles').textContent = obstacleCount;
+            document.getElementById('lidar-min').textContent = minDist === Infinity ? '-- m' : minDist.toFixed(2) + ' m';
+            document.getElementById('lidar-avg').textContent = (totalDist / 8).toFixed(2) + ' m';
+            document.getElementById('lidar-success').textContent = successRate + '%';
+        }
+
+
+        // Update status indicators
+        function updateStatusIndicators(data) {
+            // System status
+            updateStatusCard('status-proximity-bridge', data.system_status.proximity_bridge);
+            updateStatusCard('status-data-relay', data.system_status.data_relay);
+            updateStatusCard('status-crop-monitor', data.system_status.crop_monitor);
+            
+            // Sensor health
+            updateStatusCard('status-rplidar', data.sensor_health.rplidar);
+            updateStatusCard('status-realsense', data.sensor_health.realsense);
+            updateStatusCard('status-pixhawk', data.sensor_health.pixhawk);
+            
+            // GPS & Telemetry
+            if (data.gps) {
+                const gps = data.gps;
+                document.getElementById('gps-lat').textContent = (gps.lat !== undefined && gps.lat !== 0) ? gps.lat.toFixed(7) + '°' : '--';
+                document.getElementById('gps-lon').textContent = (gps.lon !== undefined && gps.lon !== 0) ? gps.lon.toFixed(7) + '°' : '--';
+                document.getElementById('gps-alt').textContent = (gps.alt !== undefined && gps.alt !== 0) ? gps.alt.toFixed(2) + ' m' : '-- m';
+                const fixTypes = ['No Fix', 'No Fix', '2D Fix', '3D Fix', 'DGPS', 'RTK Float', 'RTK Fixed'];
+                const fixType = (gps.fix !== undefined && gps.fix < fixTypes.length) ? fixTypes[gps.fix] : 'Unknown';
+                document.getElementById('gps-fix').textContent = fixType;
+                // Color code GPS fix status
+                const fixEl = document.getElementById('gps-fix');
+                if (fixEl) {
+                    fixEl.className = 'status-card-value';
+                    if (gps.fix >= 3) fixEl.classList.add('good');
+                    else if (gps.fix >= 2) fixEl.classList.add('warning');
+                    else fixEl.classList.add('error');
+                }
+            }
+            
+            // Attitude
+            if (data.attitude) {
+                const att = data.attitude;
+                document.getElementById('attitude-roll').textContent = (att.roll !== undefined) ? (att.roll * 180 / Math.PI).toFixed(1) + '°' : '--°';
+                document.getElementById('attitude-pitch').textContent = (att.pitch !== undefined) ? (att.pitch * 180 / Math.PI).toFixed(1) + '°' : '--°';
+                document.getElementById('attitude-yaw').textContent = (att.yaw !== undefined) ? (att.yaw * 180 / Math.PI).toFixed(1) + '°' : '--°';
+            }
+            
+            // Battery
+            if (data.battery) {
+                const bat = data.battery;
+                document.getElementById('battery-voltage').textContent = (bat.voltage !== undefined && bat.voltage > 0) ? bat.voltage.toFixed(2) + ' V' : '-- V';
+                document.getElementById('battery-current').textContent = (bat.current !== undefined) ? bat.current.toFixed(2) + ' A' : '-- A';
+                document.getElementById('battery-remaining').textContent = (bat.remaining !== undefined) ? bat.remaining + '%' : '--%';
+                // Color code battery remaining
+                const batEl = document.getElementById('battery-remaining');
+                if (batEl && bat.remaining !== undefined) {
+                    batEl.className = 'status-card-value';
+                    if (bat.remaining >= 50) batEl.classList.add('good');
+                    else if (bat.remaining >= 20) batEl.classList.add('warning');
+                    else batEl.classList.add('error');
+                }
+            }
+            
+            // Statistics
+            const stats = data.statistics;
+            const uptimeHours = Math.floor(stats.uptime / 3600);
+            const uptimeMinutes = Math.floor((stats.uptime % 3600) / 60);
+            document.getElementById('stat-uptime').textContent = `${uptimeHours}h ${uptimeMinutes}m`;
+            document.getElementById('stat-messages').textContent = stats.messages_sent.toLocaleString();
+            document.getElementById('stat-lidar-success').textContent = stats.rplidar_success_rate + '%';
+            document.getElementById('stat-realsense-fps').textContent = stats.realsense_fps;
+            document.getElementById('stat-last-update').textContent = stats.last_update;
+            
+            // Camera FPS
+            document.getElementById('camera-fps').textContent = stats.realsense_fps;
+            document.getElementById('camera-status').textContent = data.sensor_health.realsense;
+            pushFps(stats.realsense_fps);
+        }
+
+        function updateStatusCard(id, value) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = value;
+            el.className = 'status-card-value';
+            
+            if (value === 'RUNNING') el.classList.add('running');
+            else if (value === 'STOPPED') el.classList.add('stopped');
+            else if (value === 'Good') el.classList.add('good');
+            else if (value === 'Warning') el.classList.add('warning');
+            else if (value === 'Error') el.classList.add('error');
+            else if (value === 'Connected') el.classList.add('connected');
+            else if (value === 'Disconnected') el.classList.add('disconnected');
+        }
+
+        function updateQuickStatus(data) {
+            const qs = document.getElementById('q-status'); if (qs) qs.textContent = document.getElementById('status-ready').textContent;
+            const qm = document.getElementById('q-mode'); if (qm) qm.textContent = document.getElementById('status-mode').textContent;
+            const qc = document.getElementById('q-conn'); if (qc) qc.textContent = document.getElementById('status-connection').textContent;
+            const hb = document.getElementById('q-heartbeat'); if (hb) hb.style.opacity = hb.style.opacity === '0.4' ? '1' : '0.4';
+        }
+
+        // Alerts
+        function updateAlerts(data) {
+            const alerts = [];
+            if (data.system_status.proximity_bridge === 'STOPPED') {
+                alerts.push({ level: 'warn', msg: 'Proximity bridge stopped.' });
+            }
+            if (data.sensor_health.rplidar === 'Error') {
+                alerts.push({ level: 'warn', msg: 'LIDAR sync issue detected.' });
+            }
+            if (data.sensor_health.realsense === 'Disconnected') {
+                alerts.push({ level: 'warn', msg: 'RealSense camera disconnected.' });
+            }
+            if (alerts.length === 0) {
+                alerts.push({ level: 'success', msg: 'All systems nominal.' });
+            }
+            const container = document.getElementById('alerts-list');
+            if (container) {
+                container.innerHTML = alerts.map(alert => `
+                    <div class="alert-item ${alert.level}">
+                        <span class="alert-icon">${alert.level === 'warn' ? '🔔' : '🟢'}</span>
+                        <span>${alert.msg}</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        // Live Logs
+        const logs = [];
+        let logFilter = 'all';
+        function addLogEntry(level, message) {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            logs.unshift({ level, message, time });
+            if (logs.length > 200) logs.pop();
+            renderLogs();
+        }
+        function renderLogs() {
+            const container = document.getElementById('logs-container');
+            if (!container) return;
+            const filtered = logs.filter(l => logFilter === 'all' || l.level === logFilter).slice(0, 50);
+            container.innerHTML = filtered.map(l => `
+                <div class="log-entry ${l.level}"><span class="log-time">[${l.time}]</span><span class="log-message">${l.message}</span></div>
+            `).join('');
+        }
+        document.addEventListener('click', (e) => {
+            const chip = e.target.closest('.chip');
+            if (!chip) return;
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            logFilter = chip.getAttribute('data-level');
+            renderLogs();
+        });
+
+        // FPS sparkline
+        const fpsData = [];
+        function pushFps(v) {
+            fpsData.push(Number(v) || 0);
+            if (fpsData.length > 50) fpsData.shift();
+            drawFpsSparkline();
+        }
+        function drawFpsSparkline() {
+            const canvas = document.getElementById('fps-sparkline');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0,0,w,h);
+            if (fpsData.length < 2) return;
+            const min = Math.min(...fpsData), max = Math.max(...fpsData);
+            const range = Math.max(1, max - min);
+            ctx.strokeStyle = '#00FFFF';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            fpsData.forEach((val, i) => {
+                const x = (i / (fpsData.length - 1)) * (w - 4) + 2;
+                const y = h - ((val - min) / range) * (h - 4) - 2;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+
+        // Camera stream switching
+        let currentStream = 'rgb';
+        const btnRgb = document.getElementById('btn-rgb');
+        const btnDepth = document.getElementById('btn-depth');
+        const btnObjDetect = document.getElementById('btn-obj-detect');
+        const cameraStream = document.getElementById('camera-stream');
+        const cameraPlaceholder = document.getElementById('camera-placeholder');
+        
+        function updateCameraStream() {
+            if (!cameraStream) return;
+            let url = '/api/stream';
+            if (currentStream === 'depth') url = '/api/stream/depth';
+            else if (currentStream === 'obj-detect') url = '/api/stream/obj-detect';
+            
+            // Show placeholder while loading
+            if (cameraPlaceholder) {
+                cameraPlaceholder.style.display = 'flex';
+                cameraPlaceholder.style.opacity = '1';
+            }
+            cameraStream.style.opacity = '0';
+            
+            // Set new source - MJPEG streams automatically refresh
+            cameraStream.src = url;
+            
+            // Check if image loads successfully
+            const checkStream = () => {
+                if (cameraStream.complete && cameraStream.naturalWidth > 0 && cameraStream.naturalHeight > 0) {
+                    // Stream is working - hide placeholder
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.opacity = '0';
+                        setTimeout(() => {
+                            if (cameraPlaceholder) cameraPlaceholder.style.display = 'none';
+                        }, 300);
+                    }
+                    cameraStream.style.opacity = '1';
+                } else {
+                    // Still loading or failed
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.display = 'flex';
+                        cameraPlaceholder.style.opacity = '1';
+                    }
+                    cameraStream.style.opacity = '0';
+                }
+            };
+            
+            // Check immediately and on load/error events
+            cameraStream.onload = checkStream;
+            cameraStream.onerror = () => {
+                if (cameraPlaceholder) {
+                    cameraPlaceholder.style.display = 'flex';
+                    cameraPlaceholder.style.opacity = '1';
+                }
+                cameraStream.style.opacity = '0';
+            };
+            
+            // Also check periodically for MJPEG streams
+            setTimeout(checkStream, 500);
+        }
+        
+        // Periodically check if stream is working (for MJPEG)
+        let streamCheckInterval = setInterval(() => {
+            if (cameraStream && cameraStream.complete) {
+                if (cameraStream.naturalWidth > 0 && cameraStream.naturalHeight > 0) {
+                    // Stream is working
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.opacity = '0';
+                        if (cameraPlaceholder.style.display !== 'none') {
+                            setTimeout(() => {
+                                if (cameraPlaceholder) cameraPlaceholder.style.display = 'none';
+                            }, 300);
+                        }
+                    }
+                    cameraStream.style.opacity = '1';
+                } else {
+                    // Stream not working
+                    if (cameraPlaceholder) {
+                        cameraPlaceholder.style.display = 'flex';
+                        cameraPlaceholder.style.opacity = '1';
+                    }
+                    cameraStream.style.opacity = '0';
+                }
+            }
+        }, 1000);
+        
+        btnRgb?.addEventListener('click', () => {
+            currentStream = 'rgb';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnRgb.classList.add('active');
+            updateCameraStream();
+        });
+        btnDepth?.addEventListener('click', () => {
+            currentStream = 'depth';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnDepth.classList.add('active');
+            updateCameraStream();
+        });
+        btnObjDetect?.addEventListener('click', () => {
+            currentStream = 'obj-detect';
+            document.querySelectorAll('.btn-small').forEach(b => b.classList.remove('active'));
+            btnObjDetect.classList.add('active');
+            updateCameraStream();
+        });
+        
+        // Initialize camera stream on page load
+        window.addEventListener('load', () => {
+            if (cameraStream) {
+                // Give it a moment for DOM to be ready
+                setTimeout(() => {
+                    updateCameraStream();
+                }, 100);
+            }
+        });
+        
+        // Also initialize immediately if DOM is already loaded
+        if (document.readyState !== 'loading' && cameraStream) {
+            setTimeout(() => {
+                updateCameraStream();
+            }, 100);
+        }
+
+        // Gallery
+        const galleryModal = document.getElementById('gallery-modal');
+        const galleryImg = document.getElementById('gallery-image');
+        const galleryCap = document.getElementById('gallery-caption');
+        const galleryClose = document.getElementById('gallery-close');
+        const btnOpenGallery = document.getElementById('btn-open-gallery');
+        
+        function loadGallery() {
+            fetch('/api/crop/list')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Gallery data:', data);
+                    const modalContent = document.querySelector('.gallery-modal-content');
+                    
+                    // Hide large image view
+                    galleryImg.classList.remove('show');
+                    document.getElementById('gallery-caption-div').classList.remove('show');
+                    
+                    if (!data.images || data.images.length === 0) {
+                        // Show message if no images
+                        const existingMsg = modalContent.querySelector('.no-images-msg');
+                        const existingGrid = modalContent.querySelector('.gallery-grid');
+                        if (existingGrid) existingGrid.remove();
+                        if (!existingMsg) {
+                            const msg = document.createElement('div');
+                            msg.className = 'no-images-msg';
+                            msg.textContent = 'No crop images available yet. Images are captured every 10 seconds.';
+                            modalContent.appendChild(msg);
+                        }
+                        return;
+                    }
+                    
+                    // Remove any "no images" message
+                    const existingMsg = modalContent.querySelector('.no-images-msg');
+                    if (existingMsg) existingMsg.remove();
+                    
+                    // Remove existing grid if present
+                    const existingGrid = modalContent.querySelector('.gallery-grid');
+                    if (existingGrid) existingGrid.remove();
+                    
+                    // Create gallery grid
+                    const grid = document.createElement('div');
+                    grid.className = 'gallery-grid';
+                    grid.innerHTML = data.images.map(img => `
+                        <div class="gallery-item" data-src="/api/crop/archive/${img.filename}" data-caption="${img.filename} • ${img.time}">
+                            <img src="/api/crop/archive/${img.filename}?t=${Date.now()}" alt="${img.filename}" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22105%22%3E%3Crect fill=%22%23333%22 width=%22140%22 height=%22105%22/%3E%3Ctext fill=%22%23999%22 font-family=%22sans-serif%22 font-size=%2212%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3EBroken%3C/text%3E%3C/svg%3E';">
+                            <span class="gallery-label">${img.time}</span>
+                        </div>
+                    `).join('');
+                    
+                    modalContent.appendChild(grid);
+                    
+                    // Add click handlers to thumbnails
+                    document.querySelectorAll('.gallery-item').forEach(item => {
+                        item.addEventListener('click', () => {
+                            const src = item.getAttribute('data-src');
+                            const caption = item.getAttribute('data-caption');
+                            
+                            // Hide grid, show large image
+                            grid.style.display = 'none';
+                            galleryImg.src = src + '?t=' + Date.now();
+                            galleryImg.alt = caption;
+                            galleryImg.classList.add('show');
+                            galleryCap.textContent = caption;
+                            document.getElementById('gallery-caption-div').classList.add('show');
+                            
+                            galleryImg.onerror = () => {
+                                galleryImg.alt = 'Failed to load image';
+                                galleryImg.src = '';
+                            };
+                        });
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading gallery:', error);
+                    const modalContent = document.querySelector('.gallery-modal-content');
+                    const existingMsg = modalContent.querySelector('.no-images-msg');
+                    const existingGrid = modalContent.querySelector('.gallery-grid');
+                    if (existingGrid) existingGrid.remove();
+                    if (!existingMsg) {
+                        const msg = document.createElement('div');
+                        msg.className = 'no-images-msg';
+                        msg.textContent = `Error loading gallery: ${error.message}`;
+                        modalContent.appendChild(msg);
+                    }
+                });
+        }
+        
+        btnOpenGallery?.addEventListener('click', () => {
+            loadGallery();
+            galleryModal.classList.add('open');
+        });
+        galleryClose?.addEventListener('click', () => {
+            galleryModal.classList.remove('open');
+            // Reset view when closing
+            galleryImg.classList.remove('show');
+            document.getElementById('gallery-caption-div').classList.remove('show');
+            const grid = document.querySelector('.gallery-grid');
+            if (grid) grid.style.display = 'grid';
+        });
+        const galleryBack = document.getElementById('gallery-back');
+        galleryBack?.addEventListener('click', () => {
+            // Back to gallery view
+            galleryImg.classList.remove('show');
+            document.getElementById('gallery-caption-div').classList.remove('show');
+            const grid = document.querySelector('.gallery-grid');
+            if (grid) grid.style.display = 'grid';
+        });
+        galleryModal?.addEventListener('click', (e) => { 
+            if (e.target === galleryModal) {
+                galleryModal.classList.remove('open');
+                // Reset view when closing
+                galleryImg.classList.remove('show');
+                document.getElementById('gallery-caption-div').classList.remove('show');
+                const grid = document.querySelector('.gallery-grid');
+                if (grid) grid.style.display = 'grid';
+            }
+        });
+
+        // Fetch real data from API
+        function updateDashboard() {
+            fetch('/api/telemetry')
+                .then(response => response.json())
+                .then(data => {
+                    telemetryData = data;
+                    
+                    // Update LIDAR
+                    if (lidarCanvas && lidarCtx) {
+                        drawLidar(data.proximity);
+                    }
+                    
+                    // Update status indicators
+                    updateStatusIndicators(data);
+                    updateAlerts(data);
+                    updateQuickStatus(data);
+                    
+                    // Add log entry
+                    addLogEntry('info', 'Telemetry data received');
+                })
+                .catch(error => {
+                    console.error('Error fetching telemetry:', error);
+                    addLogEntry('error', 'Failed to fetch telemetry data');
+                });
+        }
+
+        // Initialize
+        initLidar();
+        updateCameraStream();
+        
+        // Initial draw
+        if (lidarCanvas && lidarCtx) {
+            drawLidar(telemetryData.proximity);
+        }
+
+        // Update every 2 seconds
+        setInterval(updateDashboard, 2000);
+        
+        // Continuous animations
+        function animate() {
+            if (lidarCanvas && lidarCtx && telemetryData && telemetryData.proximity) {
+                drawLidar(telemetryData.proximity);
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+</script>
+</body>
+</html>
+
+
+'''
+
+def load_dashboard_html() -> str:
+    """Load the operator UI from disk so we can tweak styling without touching the Python code."""
+    template_path = BASE_DIR / "dashboard_standalone_v9.html"
+    try:
+        with open(template_path, "r", encoding="utf-8") as fp:
+            return fp.read()
+    except Exception as exc:
+        print(f"[DASHBOARD] Failed to load {template_path}: {exc}")
+        return _FALLBACK_DASHBOARD_HTML
+
+
+DASHBOARD_HTML = load_dashboard_html()
+
+@app.route('/')
+def index():
+    """Serve the main dashboard once a user is logged in."""
+    if not session.get('user'):
+        return redirect(url_for('login'))
+    return render_template_string(DASHBOARD_HTML)
+
+LOGIN_HTML = '''
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - Astra Dashboard</title>
+<style>
+:root {
+    --bg: #0F2845;
+    --card: #1E3A5F;
+    --text: #FFFFFF;
+    --cyan: #00FFFF;
+    --cyan-glow: rgba(0, 255, 255, 0.6);
+    --muted: rgba(255, 255, 255, 0.75);
+    --red: #EF4444;
+}
+body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #0F2845 0%, #1A3A5A 100%); color:var(--text); display:grid; place-items:center; height:100vh; margin:0;}
+.card{background: linear-gradient(135deg, var(--card) 0%, rgba(30, 58, 95, 0.95) 100%); border:2px solid rgba(0, 255, 255, 0.4); border-radius:16px; padding:32px; width:420px; max-width:90vw; box-shadow:0 8px 32px rgba(0,0,0,0.5), 0 0 40px rgba(0,255,255,0.2);}
+.login-vehicle-image{width:100%; max-width:320px; height:auto; margin:0 auto 20px; display:block; filter:drop-shadow(0 0 20px rgba(0,255,255,0.4)); border-radius:8px; object-fit:contain;}
+.card h2{font-size:24px; font-weight:700; color:var(--cyan); text-align:center; margin-bottom:8px; text-shadow:0 0 15px var(--cyan-glow);}
+.card .subtitle{text-align:center; color:var(--muted); font-size:13px; margin-bottom:24px;}
+input{width:100%; padding:12px 16px; margin:8px 0; border-radius:10px; border:1px solid rgba(0,255,255,0.35); background:rgba(15,40,69,0.7); color:var(--text); font-size:14px; font-family:inherit; transition:all 0.2s;}
+input:focus{outline:none; border-color:var(--cyan); box-shadow:0 0 15px rgba(0,255,255,0.4); background:rgba(15,40,69,0.85);}
+button{width:100%; padding:12px; border-radius:10px; border:none; background:linear-gradient(135deg, var(--cyan) 0%, #00CCCC 100%); color:#0F2845; font-weight:700; font-size:14px; cursor:pointer; transition:all 0.2s; box-shadow:0 4px 12px rgba(0,255,255,0.4);}
+button:hover{transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,255,255,0.5); background:linear-gradient(135deg, #00FFFF 0%, #00DDDD 100%);}
+a{color:var(--cyan); text-decoration:none}
+.muted{color:var(--muted); font-size:12px;}
+.login-hint{text-align:center; color:var(--muted); font-size:12px; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.1);}
+</style></head>
+<body>
+  <div class="card">
+    <img src="/static/rover4.webp" alt="Autonomous Rover" class="login-vehicle-image" onerror="this.style.display='none'">
+    <h2>🚀 Astra Dashboard</h2>
+    <div class="subtitle">Project Astra NZ - V9</div>
+    <form method="post" action="/login">
+      <input name="username" placeholder="Username" required autocomplete="username">
+      <input name="password" type="password" placeholder="Password" required autocomplete="current-password">
+      <button type="submit">Sign In</button>
+    </form>
+    <div class="login-hint">Developed by Harinder Singh</div>
+    <div class="muted" style="margin-top:10px; text-align:center;"><a href="/signup">Request admin signup</a></div>
+  </div>
+</body></html>
+'''
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    """Render the login screen and validate credentials against the local user file."""
+    if request.method == 'POST':
+        users = load_users()
+        user = request.form.get('username','')
+        pw = request.form.get('password','')
+        if users.get(user) == pw or (user=='admin' and pw=='admin'):
+            session['user'] = user
+            return redirect('/')
+        return render_template_string(LOGIN_HTML)
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/logout')
+def logout():
+    """Clear the session cookie and send the user back to the login page."""
+    session.clear()
+    return redirect('/login')
+
+SIGNUP_HTML = '''
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signup - Astra Dashboard</title>
+<style>body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0f1115; color:#e6eaf2; display:grid; place-items:center; height:100vh;} .card{background:#181c26; border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:24px; width:340px; box-shadow:0 8px 24px rgba(0,0,0,0.35)} input{width:100%; padding:10px 12px; margin:8px 0; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#10141c; color:#e6eaf2} button{width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12); background:#6ee7b7; color:#0f1115; font-weight:700; cursor:pointer} .muted{color:#98a2b3; font-size:12px;}</style></head>
+<body>
+  <div class="card">
+    <h3 style="margin:0 0 12px 0;">Admin Signup</h3>
+    <form method="post" action="/signup">
+      <input name="secret" placeholder="Secret Code" required>
+      <input name="username" placeholder="New Admin Username" required>
+      <input name="password" type="password" placeholder="New Admin Password" required>
+      <button type="submit">Create Admin</button>
+    </form>
+    <div class="muted" style="margin-top:10px;">A valid secret code is required.</div>
+  </div>
+</body></html>
+'''
+
+@app.route('/signup', methods=['GET','POST'])
+def signup():
+    """Allow a new admin account to be created with the shared signup secret."""
+    if request.method == 'POST':
+        secret = request.form.get('secret','')
+        if secret != SIGNUP_SECRET:
+            return render_template_string(SIGNUP_HTML)
+        users = load_users()
+        user = request.form.get('username','')
+        pw = request.form.get('password','')
+        if user:
+            users[user] = pw
+            save_users(users)
+            return redirect('/login')
+    return render_template_string(SIGNUP_HTML)
+
+@app.route('/static/rover4.webp')
+def serve_rover_image():
+    """Serve the rover image for login page"""
+    from flask import send_from_directory
+    import os
+    rover_path = os.path.join(os.path.dirname(__file__), 'rover4.webp')
+    if os.path.exists(rover_path):
+        return send_from_directory(os.path.dirname(rover_path), 'rover4.webp')
+    return "Image not found", 404
+
+@app.route('/api/telemetry', methods=['GET', 'POST'])
+def get_telemetry():
+    """Return current telemetry data as JSON, or accept POST updates from data relay"""
+    if request.method == 'POST':
+        try:
+            data = request.json
+            # Update GPS data if provided
+            if 'gps' in data:
+                telemetry_data['gps'].update(data['gps'])
+            # Update attitude data if provided
+            if 'attitude' in data:
+                telemetry_data['attitude'].update(data['attitude'])
+            # Update battery data if provided
+            if 'battery' in data:
+                telemetry_data['battery'].update(data['battery'])
+            # Update proximity data if provided
+            if 'proximity' in data and 'sectors_cm' in data['proximity']:
+                telemetry_data['proximity'] = data['proximity']['sectors_cm']
+            telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+            return jsonify({'status': 'ok'})
+        except Exception as e:
+            print(f"[ERROR] Failed to update telemetry: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 400
+    return jsonify(telemetry_data)
+
+@app.route('/telemetry', methods=['POST'])
+def receive_telemetry():
+    """Accept POST telemetry updates from data relay (alternative endpoint)"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data received'}), 400
+        
+        # Update GPS data if provided
+        if 'gps' in data:
+            telemetry_data['gps'].update(data['gps'])
+            print(f"[TELEMETRY] GPS updated: lat={data['gps'].get('lat', 0):.7f}, lon={data['gps'].get('lon', 0):.7f}, fix={data['gps'].get('fix', 0)}")
+        
+        # Update attitude data if provided
+        if 'attitude' in data:
+            telemetry_data['attitude'].update(data['attitude'])
+        
+        # Update battery data if provided
+        if 'battery' in data:
+            telemetry_data['battery'].update(data['battery'])
+        
+        # Update proximity data if provided
+        if 'proximity' in data and 'sectors_cm' in data['proximity']:
+            telemetry_data['proximity'] = data['proximity']['sectors_cm']
+        
+        telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        print(f"[ERROR] Failed to update telemetry: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+@app.route('/api/proximity/<int:sector>/<int:distance>')
+def update_proximity(sector, distance):
+    """Update proximity data for a specific sector"""
+    if 0 <= sector < 8:
+        telemetry_data['proximity'][sector] = distance
+        telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/crop/image/<int:slot>')
+def get_crop_image(slot):
+    """Serve a specific slot from the rolling buffer (1-10)"""
+    from flask import send_file, Response
+    import os
+    import io
+    import glob
+    from PIL import Image, ImageDraw, ImageFont
+    
+    # Validate slot number
+    if slot < 1 or slot > 10:
+        slot = 1
+    
+    image_path = f"/tmp/rover_vision/{slot}.jpg"
+    
+    # Try the rolling buffer first
+    if os.path.exists(image_path):
+        try:
+            with open(image_path, 'rb') as f:
+                img_data = f.read()
+            
+            response = Response(img_data, mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+        except Exception as e:
+            print(f"Error reading crop image slot {slot}: {e}")
+    
+    # Fallback: try to get the latest image from archive
+    try:
+        archive_images = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+        if archive_images:
+            with open(archive_images[0], 'rb') as f:
+                img_data = f.read()
+            
+            response = Response(img_data, mimetype='image/jpeg')
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+    except Exception as e:
+        print(f"Error reading archive image: {e}")
+    
+    # If all else fails, create a placeholder image
+    try:
+        # Create a 640x480 placeholder image
+        img = Image.new('RGB', (640, 480), color='black')
+        draw = ImageDraw.Draw(img)
+        
+        # Add text
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        except:
+            font = ImageFont.load_default()
+        
+        text = f"ROVER VISION\nSlot {slot} loading..."
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        x = (640 - text_width) // 2
+        y = (480 - text_height) // 2
+        
+        draw.text((x, y), text, fill='green', font=font)
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='JPEG')
+        img_byte_arr.seek(0)
+        
+        return Response(img_byte_arr.getvalue(), mimetype='image/jpeg')
+    except:
+        return "No crop image available", 404
+
+@app.route('/api/crop/latest')
+def get_crop_latest():
+    """Serve the most recent image from rolling buffer or archive"""
+    from flask import Response
+    import glob
+    try:
+        # Prefer the most recently modified file in /tmp/rover_vision
+        vision_files = sorted(glob.glob('/tmp/rover_vision/*.jpg'), key=os.path.getmtime, reverse=True)
+        if vision_files:
+            with open(vision_files[0], 'rb') as f:
+                data = f.read()
+            resp = Response(data, mimetype='image/jpeg')
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            return resp
+        # Fallback to crop archive
+        archive_files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), reverse=True)
+        if archive_files:
+            with open(archive_files[0], 'rb') as f:
+                data = f.read()
+            resp = Response(data, mimetype='image/jpeg')
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            return resp
+    except Exception as e:
+        print(f"Error serving latest crop image: {e}")
+    return "No latest image", 404
+
+def mjpeg_generator(shared_image_path: str):
+    """Yield multipart JPEG frames by watching the shared image path for updates."""
+    import time
+    last_mtime = 0
+    while True:
+        try:
+            if os.path.exists(shared_image_path):
+                mtime = os.path.getmtime(shared_image_path)
+                if mtime != last_mtime:
+                    # Read bytes and encode to ensure robust streaming
+                    with open(shared_image_path, 'rb') as f:
+                        data = f.read()
+                    # Send as-is if already JPEG
+                    frame = data
+                    last_mtime = mtime
+                else:
+                    frame = None
+            else:
+                frame = None
+        except Exception:
+            frame = None
+
+        if frame is not None:
+            try:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            except Exception:
+                pass
+        time.sleep(0.066)  # ~15 fps
+
+@app.route('/api/stream')
+def api_stream():
+    """MJPEG stream directly from shared RealSense frame without camera access."""
+    from flask import Response
+    shared = '/tmp/vision_v9/rgb_latest.jpg'
+    if not os.path.exists(shared):
+        return "No stream source", 404
+    return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# Additional streams: depth (pseudo-color) and IR (mono)
+@app.route('/api/stream/depth')
+def api_stream_depth():
+    """Serve the pseudo-colored depth feed produced by the Vision Server."""
+    from flask import Response
+    shared = '/tmp/vision_v9/depth_latest.jpg'
+    if not os.path.exists(shared):
+        return "No depth stream", 404
+    return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/stream/obj-detect')
+def api_stream_obj_detect():
+    """Stream the YOLO-annotated RGB frames when object detection is enabled."""
+    from flask import Response
+    shared = '/tmp/vision_v9/obj_detect_latest.jpg'
+    if not os.path.exists(shared):
+        return "No object detection stream", 404
+    return Response(mjpeg_generator(shared), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/crop/gallery')
+def crop_gallery():
+    """Simple gallery page to browse crop images"""
+    import glob
+    files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
+    items = []
+    for fp in files[:300]:
+        name = os.path.basename(fp)
+        ts = os.path.getmtime(fp)
+        tstr = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+        items.append(f'<div style="display:inline-block; margin:8px; text-align:center;">\
+            <a href="/api/crop/archive/{name}" target="_blank">\
+              <img src="/api/crop/archive/{name}" style="width:220px; height:140px; object-fit:cover; border:1px solid #333; border-radius:8px; display:block;">\
+            </a>\
+            <div style="color:#98a2b3; font: 12px system-ui; margin-top:4px;">{tstr}</div>\
+        </div>')
+    grid = ''.join(items) if items else '<p>No images yet.</p>'
+    return f"""
+    <html>
+    <head><title>Crop Gallery</title></head>
+    <body style="background:#0f1115; color:#e6eaf2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial; padding: 24px;">
+      <h2 style="margin:0 0 12px 0;">Crop Gallery</h2>
+      <div><a href="/" style="color:#6ee7b7; text-decoration:none;">← Back to Dashboard</a></div>
+      <div style="display:flex; flex-wrap:wrap; margin-top:16px;">{grid}</div>
+    </body>
+    </html>
+    """
+
+@app.route('/api/crop/archive/<path:filename>')
+def serve_archive_file(filename):
+    """Serve a specific archived image safely from /tmp/crop_archive"""
+    from flask import send_file, abort, Response
+    safe_dir = '/tmp/crop_archive'
+    # Sanitize filename to prevent directory traversal
+    filename = os.path.basename(filename)
+    if not filename.startswith('crop_') or not filename.endswith('.jpg'):
+        return abort(404)
+    full_path = os.path.join(safe_dir, filename)
+    if not os.path.exists(full_path):
+        return abort(404)
+    # Check file size - if 0 bytes, it's corrupted
+    try:
+        file_size = os.path.getsize(full_path)
+        if file_size == 0:
+            return abort(404)
+    except:
+        return abort(404)
+    try:
+        with open(full_path, 'rb') as f:
+            data = f.read()
+        # Verify it's actually image data (JPEG starts with FF D8)
+        if len(data) < 2 or data[:2] != b'\xff\xd8':
+            return abort(404)
+        resp = Response(data, mimetype='image/jpeg')
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        resp.headers['Content-Length'] = str(len(data))
+        return resp
+    except Exception as e:
+        print(f"Error serving archive file {filename}: {e}")
+        return abort(404)
+
+@app.route('/api/crop/list')
+def crop_list():
+    """Return JSON list of archived images with timestamps"""
+    import glob
+    try:
+        files = sorted(glob.glob('/tmp/crop_archive/crop_*.jpg'), key=os.path.getmtime, reverse=True)
+        out = []
+        for fp in files[:300]:
+            # Verify file exists and is not empty
+            if not os.path.exists(fp):
+                continue
+            try:
+                file_size = os.path.getsize(fp)
+                if file_size == 0:
+                    continue  # Skip empty files
+                # Verify it's a valid JPEG (starts with FF D8)
+                with open(fp, 'rb') as f:
+                    header = f.read(2)
+                    if header != b'\xff\xd8':
+                        continue  # Skip invalid JPEGs
+            except Exception as e:
+                print(f"[API] Error checking file {fp}: {e}")
+                continue
+            
+            ts = os.path.getmtime(fp)
+            out.append({
+                'filename': os.path.basename(fp),
+                'name': os.path.basename(fp),
+                'url': f"/api/crop/archive/{os.path.basename(fp)}",
+                'time': datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S'),
+                'mtime': int(ts),
+                'size': file_size
+            })
+        print(f"[API] Crop list: {len(out)} images found")
+        return jsonify({'images': out, 'count': len(out)})
+    except Exception as e:
+        print(f"[API] Error listing crop images: {e}")
+        return jsonify({'images': [], 'count': 0, 'error': str(e)})
+
+@app.route('/api/crop/status')
+def get_crop_status():
+    """Get crop monitor status"""
+    import os
+    import json
+    import time
+    
+    status_file = "/tmp/crop_monitor_v9.json"
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                data = json.load(f)
+                # Add file modification time
+                data['status_file_age'] = time.time() - os.path.getmtime(status_file)
+                return jsonify(data)
+        except Exception as e:
+            return jsonify({'error': f'Failed to read status file: {e}'})
+    
+    # Check if latest image exists
+    latest_image_exists = os.path.exists('/tmp/crop_latest.jpg')
+    latest_image_size = os.path.getsize('/tmp/crop_latest.jpg') if latest_image_exists else 0
+    latest_image_age = time.time() - os.path.getmtime('/tmp/crop_latest.jpg') if latest_image_exists else 0
+    
+    return jsonify({
+        'timestamp': datetime.now().isoformat(),
+        'capture_count': 0,
+        'image_path': '/tmp/crop_latest.jpg',
+        'image_size': latest_image_size,
+        'latest_image_exists': latest_image_exists,
+        'latest_image_age_seconds': latest_image_age,
+        'status': 'crop_monitor_not_running'
+    })
+
+def read_telemetry_file():
+    """Read telemetry from shared file (if proximity bridge writes to file)"""
+    while True:
+        # FIX BUG #14: Better error handling for file read failures
+        try:
+            with open('/tmp/proximity_v9.json', 'r') as f:
+                data = json.load(f)
+                telemetry_data['proximity'] = data.get('sectors_cm', [2500] * 8)
+                telemetry_data['statistics']['messages_sent'] = data.get('messages_sent', 0)
+                telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+                
+                # Update system status based on data availability
+                telemetry_data['system_status'] = {
+                    'proximity_bridge': 'RUNNING' if data.get('sectors_cm') else 'STOPPED',
+                    'data_relay': 'RUNNING',  # Assume running if dashboard is up
+                    'crop_monitor': 'RUNNING'  # Assume running if dashboard is up
+                }
+                
+                # Calculate success rates for sensors
+                lidar_attempts = data.get('lidar_attempts', 0)
+                lidar_success = data.get('lidar_success', 0)
+                if lidar_attempts > 0:
+                    telemetry_data['statistics']['rplidar_success_rate'] = int((lidar_success / lidar_attempts) * 100)
+                else:
+                    telemetry_data['statistics']['rplidar_success_rate'] = 0
+                
+                # Update sensor health based on error counts
+                lidar_errors = data.get('lidar_errors', 0)
+                telemetry_data['sensor_health'] = {
+                    'rplidar': 'Good' if lidar_errors == 0 else 'Warning' if lidar_errors < 5 else 'Error',
+                    'realsense': 'Connected' if data.get('realsense_cm') else 'Disconnected',
+                    'pixhawk': 'Connected'  # Assume connected if messages are being sent
+                }
+                
+                # Update additional statistics
+                if 'timestamp' in data:
+                    age = time.time() - data['timestamp']
+                    telemetry_data['statistics']['uptime'] = int(age)
+                
+                # Update crop monitor status
+                try:
+                    crop_status_file = "/tmp/crop_monitor_v9.json"
+                    crop_image_file = "/tmp/crop_latest.jpg"
+                    
+                    if os.path.exists(crop_status_file):
+                        with open(crop_status_file, 'r') as f:
+                            crop_data = json.load(f)
+                            # Check if image file exists and is recent
+                            image_exists = os.path.exists(crop_image_file)
+                            image_age = 0
+                            if image_exists:
+                                image_age = time.time() - os.path.getmtime(crop_image_file)
+                            
+                            # Determine status based on data freshness
+                            if image_age < 10:  # Image is less than 10 seconds old
+                                status = 'RUNNING'
+                            elif image_age < 60:  # Image is less than 1 minute old
+                                status = 'WARNING'
+                            else:
+                                status = 'STOPPED'
+                                
+                            telemetry_data['crop_monitor'] = {
+                                'status': status,
+                                'capture_count': crop_data.get('capture_count', 0),
+                                'last_capture': crop_data.get('timestamp', 'Unknown'),
+                                'image_size': crop_data.get('image_size', 0),
+                                'image_age': int(image_age)
+                            }
+                    else:
+                        telemetry_data['crop_monitor'] = {
+                            'status': 'STOPPED',
+                            'capture_count': 0,
+                            'last_capture': 'Never',
+                            'image_size': 0,
+                            'image_age': 999
+                        }
+                except Exception as e:
+                    telemetry_data['crop_monitor'] = {
+                        'status': 'ERROR',
+                        'capture_count': 0,
+                        'last_capture': f'Error: {str(e)[:20]}',
+                        'image_size': 0,
+                        'image_age': 999
+                    }
+                    
+        except FileNotFoundError:
+            # File doesn't exist yet - expected on startup
+            telemetry_data['system_status'] = {
+                'proximity_bridge': 'STOPPED',
+                'data_relay': 'Unknown',
+                'crop_monitor': 'Unknown'
+            }
+            telemetry_data['sensor_health'] = {
+                'rplidar': 'Unknown',
+                'realsense': 'Unknown',
+                'pixhawk': 'Unknown'
+            }
+        except PermissionError as e:
+            print(f"[ERROR] Permission denied reading telemetry file: {e}")
+        except json.JSONDecodeError as e:
+            print(f"[WARNING] Invalid JSON in telemetry file: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error reading telemetry: {e}")
+
+        time.sleep(0.5)
+
+def simulate_data():
+    """Simulate telemetry data for testing"""
+    import random
+    while True:
+        # Simulate proximity data
+        for i in range(8):
+            if random.random() < 0.3:  # 30% chance of obstacle
+                telemetry_data['proximity'][i] = random.randint(50, 500)
+            else:
+                telemetry_data['proximity'][i] = 2500
+
+        # Update statistics
+        telemetry_data['statistics']['uptime'] += 1
+        telemetry_data['statistics']['messages_sent'] += random.randint(5, 15)
+        telemetry_data['statistics']['last_update'] = datetime.now().strftime('%H:%M:%S')
+        telemetry_data['statistics']['rplidar_success_rate'] = random.randint(94, 98)
+        telemetry_data['statistics']['realsense_fps'] = random.randint(28, 30)
+
+        # Update status
+        telemetry_data['system_status'] = {
+            'proximity_bridge': 'RUNNING',
+            'data_relay': 'RUNNING',
+            'crop_monitor': 'RUNNING' if random.random() > 0.1 else 'STOPPED'
+        }
+
+        telemetry_data['sensor_health'] = {
+            'rplidar': 'Good' if random.random() > 0.05 else 'Warning',
+            'realsense': 'Connected',
+            'pixhawk': 'Connected'
+        }
+
+        time.sleep(0.5)
+
+if __name__ == '__main__':
+    import sys
+
+    # Start background thread for data updates
+    if '--simulate' in sys.argv:
+        print("Starting in simulation mode...")
+        data_thread = threading.Thread(target=simulate_data, daemon=True)
+    else:
+        print("Starting in production mode...")
+        print("Reading telemetry from /tmp/proximity_v9.json")
+        data_thread = threading.Thread(target=read_telemetry_file, daemon=True)
+
+    data_thread.start()
+
+    # Choose an available port (prefer 8081)
+    preferred_port = int(os.environ.get('ASTRA_DASHBOARD_PORT', '8081'))
+    port = preferred_port
+    for _ in range(5):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(('0.0.0.0', port)) != 0:
+                break
+        port += 1
+
+    # Start Flask server
+    print("\n" + "="*50)
+    print("PROJECT ASTRA NZ - Telemetry Dashboard V9")
+    print("="*50)
+    print(f"Dashboard (Local): http://0.0.0.0:{port}")
+    print(f"API Endpoint: http://0.0.0.0:{port}/api/telemetry")
+    print("="*50 + "\n")
+
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except OSError as e:
+        print(f"[ERROR] Failed to start server: {e}")

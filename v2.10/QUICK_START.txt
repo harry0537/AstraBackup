@@ -1,0 +1,45 @@
+================================================================================
+PROJECT ASTRA NZ - AUTONOMOUS ROVER SYSTEM v2.10
+QUICK START GUIDE
+================================================================================
+
+STEP 1: Run Setup
+-----------------
+python3 rover_setup.py
+
+This will install all dependencies and create the virtual environment.
+
+
+STEP 2: Configure Hardware
+--------------------------
+Edit rover_config.json to match your hardware ports:
+- lidar_port: /dev/ttyUSB0 (or your LiDAR port)
+- pixhawk_port: /dev/ttyACM0 (or your Pixhawk port)
+
+
+STEP 3: Connect Hardware
+-------------------------
+- Connect Pixhawk 6C flight controller
+- Connect RPLiDAR S3 sensor  
+- Connect Intel RealSense D435i camera
+- Ensure all USB devices are recognized
+
+
+STEP 4: Start the System
+-------------------------
+python3 rover_manager.py
+
+The system will automatically start all components.
+
+
+STEP 5: Access Dashboard
+-------------------------
+Open browser: http://localhost:8081
+Username: admin
+Password: admin
+
+
+================================================================================
+That's it! The rover system is now running.
+================================================================================
+
