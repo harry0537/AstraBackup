@@ -53,8 +53,10 @@ VISION_STATUS_FILE = os.path.join(VISION_SERVER_DIR, "status.json")
 
 
 class ComboProximityBridge:
-    # This component glues LiDAR, depth data, and MAVLink together.
-    # It never touches the RealSense camera directly; instead it consumes the files written by the Vision Server.
+    # This component provides 360° obstacle detection using LiDAR for autonomous navigation.
+    # RealSense depth is kept only for Vision Server (RGB/depth for crop monitoring).
+    # LiDAR is PRIMARY for all 8 sectors (full 360° coverage).
+    # RealSense depth is BACKUP only (forward sectors, if LiDAR unavailable).
     def __init__(self):
         self.lidar = None
         self.mavlink = None
@@ -372,7 +374,12 @@ class ComboProximityBridge:
                 self.devnull_file = None
 
     def realsense_thread_v9(self):
-        """RealSense thread - V9: Reads from Vision Server instead of camera."""
+        """RealSense thread - V9: Reads from Vision Server for backup depth data only.
+        
+        Note: RealSense is kept for Vision Server (RGB/depth for crop monitoring).
+        LiDAR is PRIMARY for obstacle detection (full 360°).
+        RealSense depth is BACKUP only (forward sectors, if LiDAR unavailable).
+        """
         
         consecutive_failures = 0
         max_failures = 10
@@ -458,7 +465,7 @@ class ComboProximityBridge:
                 time.sleep(0.1)
 
     def fuse_and_send(self):
-        """Fuse sensor data - RealSense priority for forward"""
+        """Fuse sensor data - LiDAR for full 360° obstacle detection"""
         if not self.mavlink:
             return
 
@@ -467,17 +474,17 @@ class ComboProximityBridge:
             lidar = self.lidar_sectors.copy()
             rsc = self.realsense_sectors.copy()
 
-        # PRIORITY: RealSense for forward (most critical)
-        # The front arc is where we fear crashes, so we take the closest value from either source.
+        # PRIORITY: LiDAR for full 360° coverage
+        # RealSense is kept only for Vision Server (RGB/depth for crop monitoring)
+        # LiDAR provides complete 360° obstacle detection for autonomous navigation
         fused = [self.max_distance_cm] * self.num_sectors
         for i in range(self.num_sectors):
-            if i in [0, 1, 7]:  # Forward arc - RealSense is reliable
-                fused[i] = min(rsc[i], lidar[i])
-            else:  # Sides/rear - LiDAR when available
-                if lidar[i] < self.max_distance_cm:
-                    fused[i] = lidar[i]
-                elif rsc[i] < self.max_distance_cm:
-                    fused[i] = rsc[i]
+            # Use LiDAR for all sectors (full 360° coverage)
+            if lidar[i] < self.max_distance_cm:
+                fused[i] = lidar[i]
+            # RealSense depth as backup only (if LiDAR not available for this sector)
+            elif rsc[i] < self.max_distance_cm and i in [0, 1, 7]:  # Forward sectors only as backup
+                fused[i] = rsc[i]
 
         # Send to Pixhawk - EXACTLY as v8
         orientations = [0, 1, 2, 3, 4, 5, 6, 7]
@@ -514,11 +521,12 @@ class ComboProximityBridge:
                 'sectors_cm': fused,
                 'min_cm': int(min(fused)),
                 'lidar_cm': lidar,
-                'realsense_cm': rsc,
+                'realsense_cm': rsc,  # Backup only, not used for obstacle detection
                 'messages_sent': self.stats['messages_sent'],
                 'lidar_errors': self.stats['lidar_errors'],
                 'last_lidar_error': self.stats['last_lidar_error'],
-                'vision_server_available': self.vision_server_available
+                'vision_server_available': self.vision_server_available,
+                'primary_sensor': 'lidar'  # LiDAR is primary for obstacle detection
             }
             with open('/tmp/proximity_v9.json.tmp', 'w') as f:
                 json.dump(payload, f)
@@ -551,11 +559,11 @@ class ComboProximityBridge:
         # Show sample data every 5 seconds for debugging
         debug_info = ""
         if uptime % 5 == 0:
-            debug_info = f" | L[{lidar_sample[0]/100:.1f},{lidar_sample[1]/100:.1f},{lidar_sample[2]/100:.1f}] R[{rs_sample[0]/100:.1f},{rs_sample[1]/100:.1f},{rs_sample[2]/100:.1f}]"
+            debug_info = f" | LIDAR[{lidar_sample[0]/100:.1f},{lidar_sample[1]/100:.1f},{lidar_sample[2]/100:.1f}]m"
         
         print(f"\r[{uptime:3d}s] "
-              f"MAV:{mavlink_status} Vision:{vision_status} Forward(RS):{rs_min/100:.1f}m | "
-              f"Lidar:{l_rate:2d}% {lidar_min/100:.1f}m{error_info} | "
+              f"MAV:{mavlink_status} Vision:{vision_status} | "
+              f"LIDAR(360°):{l_rate:2d}% Min:{lidar_min/100:.1f}m{error_info} | "
               f"TX:{self.stats['messages_sent']:5d} ({msg_rate:.1f}/s){debug_info}", end='', flush=True)
 
     def run(self):
@@ -613,15 +621,19 @@ class ComboProximityBridge:
             print("[OK] RealSense thread started (reading from Vision Server)")
 
         print("\n[OK] Proximity bridge operational - V9 MODE")
-        if vision_server_ready and lidar_ok:
-            print("  • PRIMARY: Vision Server depth (forward 135° arc)")
-            print("  • SECONDARY: LiDAR (side/rear, best effort)")
-        elif vision_server_ready:
-            print("  • PRIMARY: Vision Server depth only (forward 135° arc)")
-            print("  • LIDAR: Not available (limited side/rear coverage)")
+        if lidar_ok:
+            print("  • PRIMARY: LiDAR (full 360° obstacle detection)")
+            if vision_server_ready:
+                print("  • Vision Server: RealSense for RGB/depth (crop monitoring only)")
+                print("  • RealSense depth: Backup for forward sectors (if LiDAR unavailable)")
+            else:
+                print("  • Vision Server: Not available (LiDAR-only mode)")
         else:
-            print("  • PRIMARY: LiDAR only (360° coverage)")
-            print("  • Vision Server: Not available (forward arc limited)")
+            print("  • WARNING: LiDAR not available - limited obstacle detection")
+            if vision_server_ready:
+                print("  • FALLBACK: Vision Server depth (forward sectors only)")
+            else:
+                print("  • ERROR: No sensors available!")
         print("  • Update: 10Hz to Mission Planner\n")
 
         try:
